@@ -1,0 +1,40 @@
+---
+title: "Pregnancy loss"
+author: "Laura Symul"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  bookdown::html_document2: 
+    theme: flatly
+    highlight: haddock
+    toc: yes
+    toc_float: true
+    toc_depth: 5
+    number_sections: true
+    fig_caption: true
+---
+
+
+```{r PL setup, include = FALSE, eval = TRUE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+source("Scripts/00_setup.R")
+```
+
+
+```{r child = '_intro_tracking_app_and_dataset.Rmd', cache=TRUE}
+```
+
+```{r child = '_data_prep.Rmd', cache=TRUE}
+```
+
+```{r child = '_data_presentation.Rmd', cache=TRUE}
+```
+
+```{r child = '_pregnancy_loss_description.Rmd', cache=TRUE}
+```
+
+```{r child = '_pregnancy_loss_predictors.Rmd', cache=TRUE}
+```
+
+```{r child = '_users_examples.Rmd', cache=TRUE}
+```
+

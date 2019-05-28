@@ -1,0 +1,9 @@
+abbreviation,name,duration_in_weeks
+FP|VEPL,False Positive or Very Early Pregnancy Loss,6
+EPL,Early Pregnancy Loss,13
+LPL,Late Pregnancy Loss,22
+ExPTB,Extreme Pre-Term Birth,28
+PTB,Pre-Term Birth,37
+TB,Term Birth,43
+BF,Breast Feeding,80
+unclear,Unclear,Inf

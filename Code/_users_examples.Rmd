@@ -1,0 +1,110 @@
+---
+title: "User examples"
+author: "Laura Symul"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  bookdown::html_document2: 
+    theme: flatly
+    highlight: haddock
+    toc: yes
+    toc_float: true
+    toc_depth: 5
+    number_sections: true
+    fig_caption: true
+---
+
+```{r user_examples setup , include = FALSE, eval = TRUE, cache = FALSE}
+source("Scripts/00_setup.R")
+```
+
+
+
+
+# Examples of user tracking history with different pregnancy outcomes
+
+
+Loading `users` and `days` tables.
+
+```{r user_examples loading data}
+
+load(file = paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
+load(file = paste0(IO$output_data,"days.Rdata"), verbose = TRUE)
+```
+
+
+
+## Users with pregnancy loss
+
+```{r user_examples PL}
+
+j = which((users$n_PL == 1) & (users$n_preg == 1) & (users$n_cycles %in% 15:20) & (users$n_days_obs %in% 300:400))
+
+for(user in users$user_id[j]){
+  cat("\n",user, "\n")
+  d = days[which((days$user_id == user) & (days$cycle_nb >= 2)),]
+  plot.tracking.history(d = d, show_tests = TRUE, average_temp = FALSE)
+}
+
+
+user_ids = c("70d07733a9884416b056b5f819be9094",
+             "aa1caffaa60c4a6086cd3db9bfecd5bd",
+             "aa6193a3ce84413196177052fe87f493")
+
+```
+
+
+
+## Users with LB
+
+```{r user_examples LB}
+
+j = which((users$n_LB == 1) & (users$n_preg == 1) & (users$n_cycles %in% 15:20) & (users$n_days_obs %in% 300:400))
+
+for(user in users$user_id[j]){
+  cat("\n",user, "\n")
+  d = days[which((days$user_id == user) & (days$cycle_nb >= 2)),]
+  plot.tracking.history(d = d, show_tests = TRUE, average_temp = FALSE)
+}
+
+
+user_ids = c(user_ids, 
+             "1552e3fc56dc48ba977d69ed2a987841",
+             "3b8f6fb7c38545fda33c5461bba340e5",
+             "3ee8da51d47e4c178f739450b57d69f2",
+             "6fa2b5df2c074a7da88a01207bed4352",
+             "c170dd91b6004d8283bd715941655019")
+
+```
+
+
+# Selected users
+
+
+```{r user_examples selected users}
+
+for(user in user_ids){
+  cat("\n",user, "\n")
+  d = days[which((days$user_id == user) & (days$cycle_nb >= 2)),]
+  plot.tracking.history(d = d, show_tests = TRUE, average_temp = FALSE)
+}
+
+
+user_ids = c("70d07733a9884416b056b5f819be9094",
+             "c170dd91b6004d8283bd715941655019",
+             "3b8f6fb7c38545fda33c5461bba340e5")
+
+```
+
+
+
+
+```{r user_examples saving selected users}
+
+user_ids = c("70d07733a9884416b056b5f819be9094",
+             "c170dd91b6004d8283bd715941655019",
+             "3b8f6fb7c38545fda33c5461bba340e5")
+
+days = days[which(days$user_id %in% user_ids),]
+save(days, file = paste0(IO$tmp_data,"days_selected_users.Rdata"))
+
+```

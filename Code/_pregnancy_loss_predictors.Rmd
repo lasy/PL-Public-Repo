@@ -1,0 +1,107 @@
+---
+title: "Pregnancy loss predictors"
+author: "Laura Symul"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  bookdown::html_document2: 
+    theme: flatly
+    highlight: haddock
+    toc: yes
+    toc_float: true
+    toc_depth: 5
+    number_sections: true
+    fig_caption: true
+---
+
+```{r preg_loss_pred setup , include = FALSE, eval = TRUE, cache = FALSE}
+source("Scripts/00_setup.R")
+```
+
+
+
+
+
+# Predictors of pregnancy losses
+
+
+## Is cycle length predictive of pregnancy outcomes
+
+```{r preg_loss_pred cycle length}
+
+load(file = paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
+
+users$any_PL = ifelse(users$n_PL>0, TRUE, ifelse(users$n_LB>0,FALSE,NA))
+
+u = users[which(!is.na(users$any_PL)),]
+
+
+glm_cl = glm(
+  any_PL ~ cycle_length_before_preg_avg + 
+    cycle_length_before_preg_median + 
+    cycle_length_before_preg_sd,
+  data = u,
+  family = "binomial")
+summary(glm_cl)
+
+
+glm_cl = glm(
+  any_PL ~ cycle_length_before_preg_median,
+  data = u,
+  family = "binomial")
+
+summary(glm_cl)
+
+
+glm_cl = glm(
+  any_PL ~ cycle_length_before_preg_sd,
+  data = u,
+  family = "binomial")
+
+summary(glm_cl)
+
+ggplot(u, aes(x = cycle_length_before_preg_avg, fill = any_PL))+
+  geom_histogram(col = NA, alpha = 0.5, position = "identity", binwidth = 1)
+
+
+ggplot(u, aes(x = cycle_length_before_preg_median, fill = any_PL))+
+  geom_histogram(col = NA, alpha = 0.5, position = "identity", binwidth = 1)
+  
+
+
+ggplot(u, aes(x = cycle_length_before_preg_median, fill = any_PL))+
+  geom_density(col = NA, alpha = 0.5, bw = 2)
+
+
+
+ggplot(u, aes(x = log(cycle_length_before_preg_sd), fill = any_PL))+
+  geom_histogram(col = NA, alpha = 0.5, position = "identity", binwidth = 1)
+
+```
+
+
+
+
+
+
+
+## Is something else predictive of pregnancy outcomes?
+
+### Detect ovulation in cycles without positive pregnancy tests
+
+* Use HMM model (adapt it to include prior knowledge and LH tests)
+
+* Label days table
+
+* Aggregate cycles table with
+
+    + ovulation day + uncertainty
+  
+    + temperature shift
+  
+* Aggregate users table with 
+
+    + average, minimum and maximum temperature shift for cycles before first positive preg test
+
+
+
+

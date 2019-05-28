@@ -1,0 +1,23 @@
+---
+title: "Introduction to menstrual cycle and fertility awareness tracking app Kindara"
+author: "Laura Symul"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  bookdown::html_document2: 
+    theme: flatly
+    highlight: haddock
+    toc: yes
+    toc_float: true
+    toc_depth: 5
+    number_sections: true
+    fig_caption: true
+---
+
+
+
+# Kindara app and dataset
+
+![](../Figures Tables Media/Media/kindara_screen.PNG)
+
+
+

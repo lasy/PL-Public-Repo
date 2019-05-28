@@ -1,0 +1,218 @@
+---
+title: "Pregnancy loss - FIGURES"
+author: "Laura Symul"
+date: "4/18/2019"
+output: html_document
+---
+
+```{r figures setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("Scripts/00_setup.R")
+```
+
+# Table 1
+
+```{r figures table 1}
+
+load(paste0(IO$output_data, "users.Rdata"), verbose = TRUE)
+load(paste0(IO$output_data, "cycles.Rdata"), verbose = TRUE)
+
+
+table_1 = data.frame(Attribute = "Number of users", Value = nrow(users))
+table_1 = rbind(table_1, data.frame(Attribute = "Total number of cycles", Value = sum(users$n_cycles)) )
+table_1 = rbind(table_1, data.frame(Attribute = "Number of cycles per users (mean ± sd) ", 
+                                    Value = paste0(round(mean(users$n_cycles),2)," ± ",
+                                                   round(sd(users$n_cycles),2)) ))
+
+table_1 = rbind(table_1, data.frame(Attribute = "Tracking duration per user [in years] (mean ± sd)", 
+                                    Value = paste0(round(mean(users$app_usage_duration_in_years, na.rm = TRUE),2)," ± ",
+                                                   round(sd(users$app_usage_duration_in_years, na.rm = TRUE),2)) ))
+
+table_1 = rbind(table_1, data.frame(Attribute = "Total number of positive preg. tests", Value = sum(users$n_pos_cycles)) )
+
+table_1
+
+write.csv(table_1, file = paste0(IO$tables,"dataset_info.csv"))
+
+
+```
+
+
+
+# Figure 1
+
+```{r figures users examples}
+
+load(paste0(IO$tmp_data,"days_selected_users.Rdata"), verbose = TRUE)
+
+user_ids = unique(days$user_id)
+
+for(user in user_ids){
+  cat("\n",user, "\n")
+  d = days[which((days$user_id == user) & (days$cycle_nb >= 2)),]
+  plot.tracking.history(d = d, show_tests = TRUE, average_temp = FALSE)
+  
+  pdf(file = paste0(IO$panels,"example_",user,".pdf"), width = 9, height = 3.5)
+  plot.tracking.history(d = d, show_tests = TRUE, average_temp = FALSE)
+  dev.off()
+  
+}
+
+```
+
+
+
+# Figure 2
+
+```{r figures cycle length histogram}
+
+load(file = paste0(IO$output_data, "cycles.Rdata"), verbose = TRUE)
+
+g_hist_lt = ggplot(cycles, aes(x = cycle_length, fill = preg_test_class)) + 
+  geom_vline(xintercept = dict$pregnancy_timeline$duration_in_days, col = "gray", linetype = 2)+
+  geom_histogram(aes(y = ..density..), binwidth = 7, position = "identity", alpha = 0.5)+
+  scale_x_continuous(breaks = viz$xaxis_m*28, minor_breaks = viz$xaxis_s*7,  
+                     labels = viz$xaxis_m*4, limits = c(0,20*28))+
+  ylab("density")+ xlab("cycle or pregnancy duration (in weeks)")+ # ylab("% of cycles")
+  scale_fill_manual(name = "Cycle label", values = c("tomato","lightgoldenrod4","royalblue1"))+ 
+  theme(legend.position = "bottom")
+#g_hist_lt
+
+g_hist_st = ggplot(cycles, aes(x = cycle_length, fill = preg_test_class)) +   
+  geom_vline(xintercept = dict$pregnancy_timeline$duration_in_days, col = "gray", linetype = 2)+
+  geom_histogram(aes(y = ..density.. ), binwidth = 1, position = "identity", alpha = 0.5)+
+  scale_x_continuous(breaks = viz$xaxis_m*28, minor_breaks = viz$xaxis_s*7,  
+                     labels = viz$xaxis_m*4, limits = c(0,150))+
+  ylab("density")+ xlab("cycle or pregnancy duration (in weeks)")+ # ylab("% of cycles")
+  scale_fill_manual(values = c("tomato","lightgoldenrod4","royalblue1"))+ 
+  guides(fill = FALSE)
+#facet_grid(preg_test_class ~ .)
+#g_hist_st
+
+
+g_inset = ggplotGrob(g_hist_st +
+                  theme(plot.background = element_rect(colour = "gray40")))
+
+
+g = g_hist_lt + annotation_custom(
+    grob = g_inset,
+    xmin = 24*7,
+    xmax = Inf,
+    ymin = 0.03,
+    ymax = Inf
+  )
+
+g
+
+ggsave(filename = paste0(IO$panels, "cycle or pregnancy duration.pdf"), g, width = 7, height = 5)
+
+```
+
+
+
+```{r figures pregnancy outcomes}
+
+load(file = paste0(IO$output_data, "cycles.Rdata"), verbose = TRUE)
+
+j = which(cycles$preg_test_class == "pregnant")
+
+g = ggplot(cycles[j,], aes(x = preg_outcome, fill = preg_outcome)) + 
+  geom_bar(aes(y = (..count..)/sum(..count..)))+
+  xlab("Pregnancy outcome")+ ylab("% cycles")+
+  scale_fill_manual(values = dict$pregnancy_timeline$colors)+
+  scale_y_continuous(labels=percent)+
+  guides(fill = FALSE)
+
+g
+
+
+ggsave(filename = paste0(IO$panels, "pregnancy outcomes.pdf"), g, width = 5, height = 5)
+
+table(cycles$preg_outcome[j])
+x = round(table(cycles$preg_outcome[j])/sum(table(cycles$preg_outcome[j])) * 100 ,2)
+x
+
+```
+
+```{r figures outcomes table}
+
+
+table(users$n_LB, users$n_PL)
+table(users$n_LB)
+table(users$n_PL)
+
+
+j = which((users$n_LB + users$n_PL)>0)
+table(users$n_LB[j], users$n_PL[j])
+table(users$n_LB[j])
+round(table(users$n_LB[j])/sum(table(users$n_LB[j])) * 100, 2)
+
+table(users$n_PL[j])
+round(table(users$n_PL[j])/sum(table(users$n_PL[j])) * 100, 2)
+
+
+```
+
+
+
+
+
+
+# Figure 3
+
+
+
+```{r figures cycle lengths predictor}
+
+load(file = paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
+
+users$any_PL = ifelse(users$n_PL>0, "Yes", ifelse(users$n_LB>0,"No",NA))
+
+u = users[which(!is.na(users$any_PL)),]
+
+
+g = ggplot(u, aes(x = cycle_length_before_preg_median, fill = any_PL))+
+  geom_histogram(aes(y = ..density..), col = NA, alpha = 0.5, position = "identity", binwidth = 1)+
+  scale_x_continuous(breaks = viz$xaxis_j, limits = c(14,70))+
+  scale_fill_manual(name = "experienced any preg. loss", values = c("blue","red"))+
+  xlab("median cycle length before first positive preg. test")+
+  theme(legend.position = "top")
+
+g
+
+
+ggsave(filename = paste0(IO$panels, "median_cycle_length_before_first_preg.pdf"), g, width = 5, height = 5)
+
+
+
+
+g = ggplot(u, aes(x = cycle_length_before_preg_sd, fill = any_PL))+
+  geom_histogram(aes(y = ..density..), col = NA, alpha = 0.5, position = "identity", binwidth = 0.5)+
+  scale_x_continuous(breaks = viz$xaxis_j, limits = c(0,42))+
+  scale_fill_manual(name = "experienced any preg. loss", values = c("blue","red"))+
+  xlab("standard deviation in cycle length before 1st pos. preg. test")+
+  theme(legend.position = "top")
+g
+
+ggsave(filename = paste0(IO$panels, "sd_cycle_length_before_first_preg.pdf"), g, width = 5, height = 5)
+
+
+
+
+qqplot(x=  u$cycle_length_before_preg_sd[which(u$any_PL == "Yes")], 
+       y = u$cycle_length_before_preg_sd[which(u$any_PL == "No")], 
+       pch = 16, cex = 0.5, col = rgb(0,0,0,0.3),
+       xlim = c(0,50), ylim = c(0,50))
+abline(a = 0, b = 1)
+
+
+
+qqplot(x=  u$cycle_length_before_preg_median[which(u$any_PL == "Yes")], 
+       y = u$cycle_length_before_preg_median[which(u$any_PL == "No")], 
+       pch = 16, cex = 0.5, col = rgb(0,0,0,0.3),
+       xlim = c(0,91), ylim = c(0,91))
+abline(a = 0, b = 1)
+
+
+```
+

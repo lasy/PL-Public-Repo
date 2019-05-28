@@ -1,0 +1,32 @@
+---
+title: "Misc"
+author: "Laura Symul"
+date: "5/7/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r tmp test, include = FALSE}
+
+n_foll = 6
+n_lut = 2
+t_shift = 0.5
+
+temp = c(rnorm(n_foll, m = 0, sd = t_shift/4), rnorm(n_lut, m = t_shift, sd = t_shift/4))
+#plot(temp, type = "b")
+
+temp_norm = temp - mean(temp)
+
+est_t_shift = mean(temp_norm[temp_norm>0]) -  mean(temp_norm[temp_norm<=0])
+est_t_shift
+
+plot(temp_norm, type = "b", main = round(est_t_shift, 3))
+abline(h = 0)
+
+
+```

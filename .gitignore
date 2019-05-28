@@ -1,0 +1,15 @@
+# ignore all folders that are caches from the .Rmd
+*_cache/
+*_cache_*/
+*_files/
+*_files_*/
+
+*_cache/html/*
+*_cache_*/html/*
+*_files/*
+*_files_*/*
+
+
+#ignore big files
+*.html
+

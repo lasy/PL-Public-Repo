@@ -1,0 +1,604 @@
+---
+title: "Data Preparation"
+author: "Laura Symul"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  bookdown::html_document2: 
+    theme: flatly
+    highlight: haddock
+    toc: yes
+    toc_float: true
+    toc_depth: 5
+    number_sections: true
+    fig_caption: true
+---
+
+
+
+```{r data_prep setup, include = FALSE, eval = TRUE, cache = FALSE}
+source("Scripts/00_setup.R")
+```
+
+```{r data_prep knitr options}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+
+
+# Data preparation
+
+## Load CSV, filter users, save Rdata files
+
+Transform CSV into binary Rdata files
+
+```{r data_prep load days CSV and identify users with at least one positive pregnancy test}
+
+input_folder = paste0(IO$input_data, "Days/")
+output_folder = paste0(IO$tmp_data,"Days_Rdata_from_csv/")
+if(!dir.exists(output_folder)){dir.create(output_folder)}
+
+files = list.files(input_folder)
+
+cl = makeCluster(par$n_cores)
+registerDoParallel(cl)
+
+users = foreach(file = files, .combine = c) %dopar%{
+
+  days = read.csv(paste0(input_folder,file), stringsAsFactors = FALSE) 
+  
+  # colnames
+  colnames(days)[colnames(days) == "account"] = "user_id"
+  
+  # identifying
+  users_with_pos_preg_tests = unique(days$user_id[which(days$preg_test == 1)])
+ 
+  # formating
+  days$date = as.Date(days$date)
+  # transforming first_day into a logical
+  days$first_day_o = days$first_day
+  days$first_day = ifelse(days$first_day == "True", TRUE, FALSE)
+  
+  new_file_name = gsub("csv","Rdata",file)
+  save(days, file = paste0(output_folder,new_file_name))
+
+  return(users_with_pos_preg_tests)
+}
+
+stopImplicitCluster()
+
+save(users, file = paste0(IO$tmp_data, "full_list_users_with_pos_preg_tests.Rdata"))
+
+```
+
+
+Create a user table from the list of users that ever logged a positive pregnancy test
+
+
+```{r data_prep create user tables and batches}
+
+users = data.frame(user_id = as.character(unique(users)), pos_preg_test = TRUE, stringsAsFactors = FALSE)
+users = users[order(users$user_id),]
+
+batch_size = min(par$max_batch_size, ceiling(nrow(users)/par$min_n_batches))
+n_batches = ceiling(nrow(users)/batch_size)
+users$batch = rep(1:n_batches, each = batch_size)[1:nrow(users)]
+
+save(users, file = paste0(IO$output_data, "users.Rdata"))
+ok = file.copy(from = paste0(IO$output_data, "users.Rdata"), to = paste0(IO$tmp_data, "users_with_pos_preg_tests.Rdata"), overwrite = TRUE)
+
+```
+
+
+Filter the days table and re-organize users into batches
+
+```{r data_prep filter days and split by batches}
+
+input_folder = paste0(IO$tmp_data,"Days_Rdata_from_csv/")
+tmp_folder = paste0(IO$tmp_data,"Days_filtered_split_batches/")
+if(!dir.exists(tmp_folder)){dir.create(tmp_folder)}
+
+files = list.files(input_folder)
+
+cl = makeCluster(par$n_cores)
+registerDoParallel(cl)
+
+ok = foreach(file = files) %dopar%{
+
+  load(paste0(input_folder,file), verbose = TRUE) 
+  full_days = days
+  
+  # filtering
+  full_days = full_days[full_days$user_id %in% users$user_id,]
+  full_days$input_file_id = file
+  
+  # split by batches
+  for(b in unique(users$batch[users$user_id %in% full_days$user_id])){
+    days = full_days[full_days$user_id %in% users$user_id[users$batch == b],]
+    days$batch = b
+    save(days, file = paste0(tmp_folder,"batch_",b,"_",file))
+  }
+  
+}
+stopImplicitCluster()
+
+```
+
+
+
+```{r data_prep re-assemble batches}
+
+input_folder = paste0(IO$tmp_data,"Days_filtered_split_batches/")
+output_folder = paste0(IO$output_data,"Days/")
+tmp_folder = paste0(IO$tmp_data, "Days_filtered/")
+if(dir.exists(input_folder)){unlink(output_folder, recursive = TRUE);dir.create(output_folder)}
+if(!dir.exists(tmp_folder)){dir.create(tmp_folder)}
+
+files = list.files(input_folder)
+
+input_files = foreach(b = unique(users$batch), .combine = rbind) %do%{
+  
+  cl = makeCluster(par$n_cores)
+  registerDoParallel(cl)
+
+  batch_files = files[grep(paste0("batch_",b,"_day"), files)]
+  
+  days = foreach(file = batch_files, .combine = rbind) %dopar%{
+      load(paste0(input_folder,file), verbose = TRUE) 
+      return(days)
+  }
+  stopImplicitCluster()
+  
+  
+  save(days, file = paste0(output_folder,"days_",b,".Rdata"))
+  file.copy(from = paste0(output_folder,"days_",b,".Rdata"), to = paste0(tmp_folder,"days_",b,".Rdata"), overwrite = TRUE)
+  
+  input_files = aggregate(input_file_id ~ user_id, days, function(x){paste0(unique(sort(x)),collapse = "|")})
+  return(input_files)
+}
+
+save(input_files, file = paste0(IO$tmp_data, "input_files.Rdata"))
+
+```
+
+```{r data_prep save the original input files reference into users table}
+
+input_files = aggregate(input_file_id ~ user_id, input_files, function(x){paste0(unique(sort(x)),collapse = "|")})
+users$input_files = input_files$input_file_id[match(users$user_id, input_files$user_id)]
+
+save(users, file = paste0(IO$output_data,"users.Rdata"))
+file.copy(from = paste0(IO$output_data,"users.Rdata"), to = paste0(IO$tmp_data,"users_with_original_file_id.Rdata"), overwrite = TRUE)
+
+```
+
+
+
+
+## Create a cycles table
+
+Note: we cannot use the cycles table that Kindara provided because the account ids are not linked between the 3 tables.
+
+```{r data_prep checking cycles table, eval = FALSE}
+
+# load(paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
+
+cycles_input_folder = paste0(IO$input_data,"Cycles/")
+cycles_files = list.files(cycles_input_folder)
+
+cycles = foreach(file  = cycles_files) %dopar%
+{
+  file  = cycles_files[3]
+  cycles = read.csv(paste0(cycles_input_folder,file), stringsAsFactors = FALSE)
+  dim(cycles)
+  colnames(cycles)
+  cycles$user_id = cycles$account
+  j = which(cycles$user_id %in% users$user_id)
+  length(j)
+  return(cycles[j,])
+}
+
+dim(cycles)
+
+```
+
+We thus need to create the cycles from the days table by looking at which days have the flag `first_day`.
+
+We will take this opportunity of going through the days table to
+
+* clean some columns (transform  `first_day` into a logical)
+
+* remove duplicated rows in the days table
+
+
+```{r data_prep create cycle table, eval = TRUE}
+
+# load(paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
+
+days_input_folder = paste0(IO$output_data,"Days/")
+days_files = list.files(days_input_folder)
+
+cycles = foreach(file  = days_files, .combine = rbind) %dopar%
+{
+  load(paste0(days_input_folder,file), verbose = TRUE)
+  colnames(days)
+  dim(days)
+  
+  # checking for duplicated rows
+  d = duplicated(days)
+  j = which(d)
+  if(length(j)>0){
+    days = days[-j,]
+  }
+  dim(days)
+
+  # creating the cycles table
+  cycles = days[days$first_day, c("user_id","date")]
+  colnames(cycles)[which(colnames(cycles) == "date")] = "start_date"
+  cycles = cycles[order(cycles$user_id, cycles$start_date),]  
+  
+  j = which(cycles$user_id %in% users$user_id)
+  length(j)
+  cycles = cycles[j,]
+
+  return(cycles)
+}
+
+dim(cycles)
+
+save(cycles, file = paste0(IO$output_data,"cycles.Rdata"))
+file.copy(from = paste0(IO$output_data,"cycles.Rdata"), to = paste0(IO$tmp_data,"cycles_first_version.Rdata"), overwrite = TRUE)
+
+```
+
+
+We create unique cycle ID in the cycle table
+
+```{r data_prep create cycle_nb and cycle_id in the cycles table }
+
+
+# load(paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
+cycles = cycles[order(cycles$user_id, cycles$start_date),]
+
+cycles$cycle_nb = ave(rep(1, nrow(cycles)), cycles$user_id, FUN = cumsum)
+cycles$cycle_id = paste0(cycles$user_id, "_" ,cycles$cycle_nb)
+
+cycles$end_date = cycles$start_date[match(cycles$cycle_id, paste0(cycles$user_id,"_",cycles$cycle_nb-1))] - 1
+
+cycles$cycle_length = as.numeric(cycles$end_date - cycles$start_date + 1)
+
+
+save(cycles, file = paste0(IO$output_data,"cycles.Rdata"))
+file.copy(from = paste0(IO$output_data,"cycles.Rdata"), to = paste0(IO$tmp_data,"cycles_with_nb_and_id.Rdata"), overwrite = TRUE)
+
+```
+
+And associate each row of the days to a cycle
+
+```{r data_prep create cycle_nb and cycle_id in the days table }
+
+days_folder = paste0(IO$output_data,"Days/")
+days_tmp_folder = paste0(IO$tmp_data,"Days_with_cycle_id/")
+if(!dir.exists(days_tmp_folder)){dir.create(days_tmp_folder)}
+
+
+
+cl = makeCluster(par$n_cores)
+registerDoParallel(cl)
+
+days_files = list.files(days_folder)
+
+ok = foreach(file  = days_files) %dopar%
+{
+  load(paste0(days_folder,file), verbose = TRUE)
+  colnames(days)
+  dim(days)
+  
+  # take the part of cycles that matches with the days users
+  j = which((cycles$user_id %in% unique(days$user_id)) & (!is.na(cycles$cycle_length)))
+  cycles_sub = cycles[j,]
+  
+  # expand cycles for each day
+  cycles_sub_exp = as.data.frame(lapply(cycles_sub, rep, cycles_sub$cycle_length))
+  cycles_sub_exp$cycleday = ave(rep(1,nrow(cycles_sub_exp)), cycles_sub_exp$cycle_id, FUN =cumsum)
+  cycles_sub_exp$date = cycles_sub_exp$start_date + (cycles_sub_exp$cycleday - 1)
+  cycles_sub_exp$day_id = paste0(cycles_sub_exp$user_id, "_", cycles_sub_exp$date)
+  
+  
+  # match days and cycles_sub_exp
+  days$day_id =  paste0(days$user_id, "_", days$date)
+  m = match(days$day_id, cycles_sub_exp$day_id)
+  days$cycle_nb = cycles_sub_exp$cycle_nb[m]
+  days$cycle_id = cycles_sub_exp$cycle_id[m]
+  days$cycle_length = cycles_sub_exp$cycle_length[m]
+  days$cycleday = cycles_sub_exp$cycleday[m]
+  
+  days$cycleday_from_end = days$cycleday - days$cycle_length - 1
+  
+  #d = duplicated(days[,c("user_id","date","cycleday")])
+  #if(sum(d)>0){days = days[-which(d),]}
+  
+  save(days, file = paste0(days_folder, file))
+  file.copy(from = paste0(days_folder, file), to = paste0(days_tmp_folder, file), overwrite = TRUE)
+
+}
+
+stopImplicitCluster()
+
+```
+
+## Aggregated cycles variable
+
+Now we can aggregate the days table to report useful information on the cycles table
+
+
+* aggregate to create the cycles table
+
+    + user_id --v
+    + cycle_id  --v
+    + cycle_nb  --v
+    + cycle_length  --v
+    + n_days_obs  --v
+    + day_last_obs [cycleday]  --v
+    + n_pos_preg_test  --v
+    + n_neg_preg_test  --v
+    + day_first_pos_preg_test [cycleday]  --v
+    + day_last_pos_preg_test [cycleday]  --v
+    + n_days_obs_after_first_pos_preg_test  --v
+    + last_preg_test (0, 1, -1)  --v
+    + preg_test_class (0  = no preg test; 1 = at least one positive preg test ; -1 = only negative preg tests)
+    + n_tot_sex  --v
+    + n_prot_sex  --v
+    + n_unprot_sex  --v
+    + n_withdrawal  --v
+    + n_insemination  --v
+    + n_BBT  --v
+
+
+
+
+
+```{r data_prep cycle_agg }
+
+input_days_folder = paste0(IO$tmp_data,"Days_with_cycle_id/")
+output_days_folder = paste0(IO$output_data,"Days/")
+
+cl = makeCluster(par$n_cores)
+registerDoParallel(cl)
+
+days_files = list.files(input_days_folder)
+
+cycles_agg = foreach(file  = days_files, .combine = rbind, .packages = c('plyr','dplyr')) %dopar%
+{
+  load(paste0(input_days_folder,file), verbose = TRUE)
+  colnames(days)
+  dim(days)
+  
+  # take this oppotunity to change the way preg tests are encoded
+  days$preg_test_o = days$preg_test
+  days$preg_test[days$preg_test == 2] = -1
+  
+  save(days, file = paste0(output_days_folder,file))
+  
+  # 
+  cycles_agg = ddply(days, 
+                     .(cycle_id), 
+                     .parallel = TRUE,  # FALSE,  # TRUE
+                     .fun = summarize,
+                     cycle_length = min(cycle_length),
+                     n_days_obs = lu(date),
+                     last_obs_day = max(cycleday),
+                     n_pos_preg_test = sum(preg_test == 1),
+                     n_neg_preg_test = sum(preg_test == -1),
+                     day_first_pos_preg_test = min( cycleday_from_end * (preg_test == 1), na.rm = TRUE),
+                     day_last_pos_preg_test = max(cycleday * (preg_test == 1), na.rm = TRUE),
+                     day_last_preg_test  = max(cycleday * (preg_test %in%  c(1,-1)), na.rm = TRUE),
+                     n_tot_sex = sum(sex > 0, na.rm = TRUE),
+                     n_prot_sex = sum(sex == 1, na.rm = TRUE),
+                     n_unprot_sex =  sum(sex == 2, na.rm = TRUE),
+                     n_withdrawal =  sum(sex == 3, na.rm = TRUE),
+                     n_insemination = sum(sex == 4, na.rm = TRUE),
+                     n_BBT = sum(!is.na(temperature), na.rm = TRUE))
+  
+  
+   j = which(cycles_agg$day_first_pos_preg_test < 0)
+   cycles_agg$day_first_pos_preg_test[j] = cycles_agg$cycle_length[j] + cycles_agg$day_first_pos_preg_test[j] + 1
+   
+   cycles_agg$n_pos_preg_test[is.na(cycles_agg$n_pos_preg_test)] = 0
+   cycles_agg$n_neg_preg_test[is.na(cycles_agg$n_neg_preg_test)] = 0
+   cycles_agg$day_first_pos_preg_test[is.infinite(cycles_agg$day_first_pos_preg_test)] = 0
+   cycles_agg$day_last_pos_preg_test[is.infinite(cycles_agg$day_last_pos_preg_test)] = 0
+   
+   
+   # n_days_obs_after_first_pos_preg_test
+   days$day_first_pos_preg_test = cycles_agg$day_first_pos_preg_test[match(days$cycle_id, cycles_agg$cycle_id)]
+   days$after_first_pos_preg_test = (days$day_first_pos_preg_test > 0) & (days$cycleday > days$day_first_pos_preg_test)
+   
+   cycles_agg2 = aggregate(after_first_pos_preg_test ~ cycle_id, days, sum, na.rm = TRUE )
+   cycles_agg$n_days_obs_after_first_pos_preg_test = cycles_agg2$after_first_pos_preg_test[match(cycles_agg$cycle_id, cycles_agg2$cycle_id)]
+   
+    # last_preg_test
+   days$day_last_preg_test = cycles_agg$day_last_preg_test[match(days$cycle_id, cycles_agg$cycle_id)]
+   cycles_agg2 = days[which(days$cycleday == days$day_last_preg_test),]
+   cycles_agg$last_preg_test = cycles_agg2$preg_test[match(cycles_agg$cycle_id, cycles_agg2$cycle_id)]
+   cycles_agg$last_preg_test[is.na(cycles_agg$last_preg_test)]= 0
+   
+   # preg_test_class
+   #cycles_agg$preg_test_class = ifelse(cycles_agg$n_pos_preg_test>0,ifelse(cycles_agg$last_preg_test == 1, "pregnant","pregnancy loss"), ifelse(cycles_agg$n_neg_preg_test>0,"not pregnant", "not tested"))
+   cycles_agg$preg_test_class = ifelse(cycles_agg$n_pos_preg_test>0,"pregnant", ifelse(cycles_agg$n_neg_preg_test>0,"not pregnant", "not tested"))
+   
+   
+   return(cycles_agg)
+
+}
+
+stopImplicitCluster()
+
+save(cycles_agg, file = paste0(IO$tmp_data, "cycles_agg.Rdata"))
+
+```
+
+```{r data_prep adding cycles_agg to cycles}
+
+column_names = colnames(cycles_agg)
+column_names = column_names[-which(column_names %in% colnames(cycles))]
+m = match(cycles$cycle_id, cycles_agg$cycle_id)
+for(column  in column_names){
+  eval(parse(text = paste0("cycles$",column,"= cycles_agg$",column,"[m]")))
+  #eval(parse(text = paste0("cycles$",column,"[is.na(cycles$",column,")]= 0")))
+}
+
+save(cycles, file = paste0(IO$output_data,"cycles.Rdata"))
+file.copy(from = paste0(IO$output_data,"cycles.Rdata"), to = paste0(IO$tmp_data,"cycles_with_agg.Rdata"), overwrite = TRUE)
+
+
+```
+
+
+
+
+## Filtering users 
+
+
+- with at least 4 cycles before first positive pregnancy test (1st positive preg test in cycle 5+)
+- none of these cycles should be shorter than 15 days
+- with at least 2 cycles or 20+ days with observations after the first positive preg test (from cycle 6)
+
+```{r data_prep agg users}
+
+#load(paste0(IO$tmp_data,"users_with_original_file_id.Rdata"),verbose = TRUE)
+
+users_agg = suppressWarnings(
+  ddply(cycles, 
+        .(user_id), 
+        .fun = summarize,
+        n_cycles = max(cycle_nb, na.rm = TRUE),
+        n_days_obs = sum(n_days_obs, na.rm = TRUE),
+        n_pos_cycles = sum(n_pos_preg_test > 0, na.rm = TRUE),
+        first_cycle_preg = min(cycle_nb[n_pos_preg_test > 0], na.rm = TRUE))
+)
+
+users_agg$first_cycle_preg[is.infinite(users_agg$first_cycle_preg)] =  0
+
+# n_obs_after_first_preg
+cycles_tmp = cycles
+cycles_tmp$first_cycle_preg = users_agg$first_cycle_preg[match(cycles_tmp$user_id, users_agg$user_id)]
+users_agg2 = aggregate(n_days_obs ~ user_id, cycles_tmp[cycles_tmp$cycle_nb > cycles_tmp$first_cycle_preg,  ], sum, na.rm = TRUE)
+
+users_agg$n_days_obs_after_first_preg = users_agg2$n_days_obs[match(users_agg$user_id, users_agg2$user_id)]
+users_agg$n_days_obs_after_first_preg [is.na(users_agg$n_days_obs_after_first_preg )] = 0
+
+users_agg$n_cycles_after_first_preg = users_agg$n_cycles - users_agg$first_cycle_preg
+
+
+# minimal cycle length before the first positive preg test
+users_agg2 = aggregate(cycle_length ~ user_id, 
+                       cycles_tmp[cycles_tmp$cycle_nb < cycles_tmp$first_cycle_preg,  ], 
+                       min, na.rm = TRUE)
+
+users_agg$shortest_cycle_before_first_pos_preg = users_agg2$cycle_length[match(users_agg$user_id, users_agg2$user_id)]
+
+
+
+# adding new columns to the users table
+
+column_names = colnames(users_agg)
+column_names = column_names[-which(column_names %in% colnames(users))]
+m = match(users$user_id, users_agg$user_id)
+for(column  in column_names){
+  eval(parse(text = paste0("users$",column,"= users_agg$",column,"[m]")))
+}
+
+save(users, file = paste0(IO$output_data,"users.Rdata"))
+file.copy(from = paste0(IO$output_data,"users.Rdata"), to = paste0(IO$tmp_data,"users_with_agg.Rdata"), overwrite = TRUE)
+
+
+```
+
+```{r data_prep filtering users}
+
+j = which(
+  (users$first_cycle_preg >= 5)&
+    (users$shortest_cycle_before_first_pos_preg > 15) &
+    ((users$n_cycles_after_first_preg >=2) | (users$n_days_obs_after_first_preg >= 20)))
+
+# users
+users = users[j,]
+save(users, file = paste0(IO$output_data,"users.Rdata"))
+file.copy(from = paste0(IO$output_data,"users.Rdata"), to = paste0(IO$tmp_data,"users_filtered.Rdata"), overwrite = TRUE)
+
+# cycles
+cycles = cycles[which(cycles$user_id %in% users$user_id),]
+save(cycles, file = paste0(IO$output_data,"cycles.Rdata"))
+file.copy(from = paste0(IO$output_data,"cycles.Rdata"), to = paste0(IO$tmp_data,"cycles_filtered.Rdata"), overwrite = TRUE)
+
+# days
+days_folder = paste0(IO$output_data,"Days/")
+
+cl = makeCluster(par$n_cores)
+registerDoParallel(cl)
+
+days_files = list.files(days_folder)
+
+days = foreach(file  = days_files, .combine = rbind) %dopar%
+{
+  load(paste0(days_folder,file), verbose = TRUE)
+  colnames(days)
+  dim(days)
+  j = which(days$user_id %in% users$user_id)
+  days = days[j,]
+  return(days)
+}
+
+stopImplicitCluster()
+
+save(days, file = paste0(IO$output_data,"days.Rdata"))
+file.copy(from = paste0(IO$output_data,"days.Rdata"), to = paste0(IO$tmp_data,"days_filtered.Rdata"), overwrite = TRUE)
+
+```
+
+
+## Fill the users table
+
+* aggregate
+
+    + avg, median and sd of cycle_length (cycles without positive pregnancy tests)
+    + avg, median and sd of cycle_length (cycles before first positive pregnancy tests)
+
+```{r data_prep agg users cycle length stats}
+
+#load(paste0(IO$tmp_data,"users_with_original_file_id.Rdata"),verbose = TRUE)
+cycles_tmp = cycles_tmp[cycles_tmp$user_id %in% users$user_id,]
+
+users_agg = suppressWarnings(
+  ddply(cycles_tmp, 
+        .(user_id), 
+        .fun = summarize,
+        cycle_length_no_preg_avg = mean(cycle_length[n_pos_preg_test == 0], na.rm = TRUE),
+        cycle_length_no_preg_median = median(cycle_length[n_pos_preg_test == 0], na.rm = TRUE),
+        cycle_length_no_preg_sd = sd(cycle_length[n_pos_preg_test == 0], na.rm = TRUE),
+        cycle_length_before_preg_avg = mean(cycle_length[cycle_nb < first_cycle_preg], na.rm = TRUE),
+        cycle_length_before_preg_median = median(cycle_length[cycle_nb < first_cycle_preg], na.rm = TRUE),
+        cycle_length_before_preg_sd = sd(cycle_length[cycle_nb < first_cycle_preg], na.rm = TRUE))
+)
+
+
+column_names = colnames(users_agg)
+column_names = column_names[-which(column_names %in% colnames(users))]
+m = match(users$user_id, users_agg$user_id)
+for(column  in column_names){
+  eval(parse(text = paste0("users$",column,"= users_agg$",column,"[m]")))
+}
+
+save(users, file = paste0(IO$output_data,"users.Rdata"))
+file.copy(from = paste0(IO$output_data,"users.Rdata"), to = paste0(IO$tmp_data,"users_with_cycle_length_stats.Rdata"), overwrite = TRUE)
+
+```
+
+
+
+
+
+
+
+
+
+

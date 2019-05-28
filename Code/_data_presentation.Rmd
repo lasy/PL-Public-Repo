@@ -1,0 +1,70 @@
+---
+title: "Data Presentation"
+author: "Laura Symul"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  bookdown::html_document2: 
+    theme: flatly
+    highlight: haddock
+    toc: yes
+    toc_float: true
+    toc_depth: 5
+    number_sections: true
+    fig_caption: true
+---
+
+
+```{r data_presentation setup, include = FALSE, eval = TRUE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+source("Scripts/00_setup.R")
+```
+
+# Data presentation
+
+
+## Number of users, or cycles, of positive and negative pregnancy tests
+
+```{r data_presentation }
+
+load(paste0(IO$output_data, "users.Rdata"), verbose = TRUE)
+
+agg = ddply(cycles,
+            .(user_id),
+            .fun = summarise,
+            earliest_date = start_date[order(start_date)][2],
+            latest_date = max(end_date, na.rm = TRUE))
+
+m = match(users$user_id, agg$user_id)
+
+users$earliest_date = agg$earliest_date[m]
+users$latest_date = agg$latest_date[m]
+
+users$earliest_date[which(users$earliest_date < as.Date("2012-01-01"))] = NA
+
+users$app_usage_duration_in_days = as.numeric(users$latest_date - users$earliest_date)
+users$app_usage_duration_in_years = users$app_usage_duration_in_days /365
+
+ggplot(users, aes(x = app_usage_duration_in_days)) +
+  geom_histogram(binwidth = 30)+
+  xlim(c(0,10*365))
+
+ggplot(users, aes(x = app_usage_duration_in_years)) +
+  geom_histogram(binwidth = 1/12)
+
+
+save(users, file = paste0(IO$output_data, "users.Rdata"))
+
+```
+
+
+
+
+## Example of users data
+
+See last section
+
+
+
+
+
+

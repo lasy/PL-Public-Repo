@@ -1,0 +1,188 @@
+---
+title: "Pregnancy losses"
+author: "Laura Symul"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  bookdown::html_document2: 
+    theme: flatly
+    highlight: haddock
+    toc: yes
+    toc_float: true
+    toc_depth: 5
+    number_sections: true
+    fig_caption: true
+---
+
+
+
+```{r PL_descr setup, include = FALSE, eval = TRUE, cache = FALSE}
+source("Scripts/00_setup.R")
+```
+
+```{r PL_descr knitr options}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+
+# Pregnancy losses
+
+## Histogram of cycle length
+
+- for cycles with positive pregnancy tests, with only negative pregnancy tests and with no pregnancy tests.
+
+- thresholds for EPL (Early Pregnancy loss), LPL_P (Late Pregnancy loss or premature birth), LB (live birth) and BF (breast feeding)
+
+
+
+```{r PL_descr load data}
+
+load(paste0(IO$output_data, "users.Rdata"), verbose = TRUE)
+load(paste0(IO$output_data, "cycles.Rdata"), verbose = TRUE)
+load(paste0(IO$output_data, "days.Rdata"), verbose = TRUE)
+
+```
+
+```{r PL_descr histograms }
+
+g = ggplot(cycles, aes(x = cycle_length, fill = preg_test_class)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 1, position = "identity")+
+  xlim(c(0,750))+
+  facet_grid(preg_test_class ~ .)
+g
+
+
+
+g = ggplot(cycles[cycles$preg_test_class != "pregnant",], aes(x = cycle_length, fill = preg_test_class)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 1, position = "identity", alpha = 0.5)+
+  xlim(c(0,150))
+  #facet_grid(preg_test_class ~ .)
+g
+
+
+
+
+g_hist_lt = ggplot(cycles, aes(x = cycle_length, fill = preg_test_class)) + 
+  geom_vline(xintercept = dict$pregnancy_timeline$duration_in_days, col = "gray", linetype = 2)+
+  geom_histogram(aes(y = ..density..), binwidth = 7, position = "identity", alpha = 0.5)+
+  scale_x_continuous(breaks = viz$xaxis_m*28, minor_breaks = viz$xaxis_s*7,  labels = viz$xaxis_m*4, limits = c(0,20*28))+
+  ylab("% of cycles")+ xlab("cycle or pregnancy duration (in weeks)")+
+  scale_fill_discrete(name = "Cycle label")+ theme(legend.position = "bottom")
+g_hist_lt
+
+g_hist_st = ggplot(cycles, aes(x = cycle_length, fill = preg_test_class)) +   
+  geom_vline(xintercept = dict$pregnancy_timeline$duration_in_days, col = "gray", linetype = 2)+
+  geom_histogram(aes(y = ..density..), binwidth = 1, position = "identity", alpha = 0.5)+
+  scale_x_continuous(breaks = viz$xaxis_m*28, minor_breaks = viz$xaxis_s*7,  labels = viz$xaxis_m*4, limits = c(0,150))+
+  ylab("% of cycles")+ xlab("cycle or pregnancy duration (in weeks)")+
+  guides(fill = FALSE)
+  #facet_grid(preg_test_class ~ .)
+g_hist_st
+
+
+g_inset = ggplotGrob(g_hist_st +
+                  theme(plot.background = element_rect(colour = "gray40")))
+
+
+g_hist_lt + annotation_custom(
+    grob = g_inset,
+    xmin = 24*7,
+    xmax = Inf,
+    ymin = 0.03,
+    ymax = Inf
+  )
+
+
+```
+
+
+
+```{r PL_descr preg outcome}
+
+cycles$preg_outcome = factor(cycles$preg_test_class, 
+                             levels = c(dict$pregnancy_timeline$abbreviation,
+                                        unique(cycles$preg_test_class)))
+j = which(cycles$preg_test_class == "pregnant")
+
+cycles$preg_outcome[j] = cut(cycles$cycle_length[j], 
+                             breaks = c(0,dict$pregnancy_timeline$duration_in_days), 
+                             labels = as.character(dict$pregnancy_timeline$abbreviation))
+
+
+counts = table(cycles$preg_outcome[j])
+
+table(cycles$preg_outcome[j])/sum(cycles$preg_outcome %in% c("EPL","LPL","ExPTB","PTB","TB","BF"))
+
+
+j = which(cycles$preg_test_class == "pregnant")
+
+ggplot(cycles[j,], aes(x = preg_outcome, fill = preg_outcome)) + 
+  geom_bar(aes(y = (..count..)/sum(..count..)))+
+  xlab("Pregnancy outcome")+ ylab("% cycles")+
+  scale_fill_manual(values = dict$pregnancy_timeline$colors)+
+  scale_y_continuous(labels=percent)+
+  guides(fill = FALSE)
+
+save(cycles, file = paste0(IO$output_data, "cycles.Rdata"))
+file.copy(from = paste0(IO$output_data, "cycles.Rdata"), to = paste0(IO$tmp_data, "cycles_with_preg_outcome.Rdata"), overwrite = TRUE)
+
+```
+
+
+
+
+```{r PL_descr preg outcome per users}
+
+users_preg_outcome =  ddply(cycles, 
+                            .(user_id), 
+                            .fun = summarize,
+                            n_preg = sum(preg_test_class == "pregnant", na.rm = TRUE),
+                            n_PL = sum(preg_outcome %in% c("EPL","LPL"), na.rm = TRUE),
+                            n_LB = sum(preg_outcome %in% c("ExPTB","PTB","TB","BF"), na.rm = TRUE)
+                            
+)
+
+table(users_preg_outcome$n_LB, users_preg_outcome$n_PL)
+table(users_preg_outcome$n_LB)
+table(users_preg_outcome$n_PL)
+
+
+j = which((users_preg_outcome$n_LB + users_preg_outcome$n_PL)>0)
+table(users_preg_outcome$n_LB[j], users_preg_outcome$n_PL[j])
+table(users_preg_outcome$n_LB[j])
+round(table(users_preg_outcome$n_LB[j])/sum(table(users_preg_outcome$n_LB[j])) * 100, 2)
+
+table(users_preg_outcome$n_PL[j])
+round(table(users_preg_outcome$n_PL[j])/sum(table(users_preg_outcome$n_PL[j])) * 100, 2)
+
+
+dim(users)
+dim(users_preg_outcome)
+
+colnames = colnames(users_preg_outcome[,2:ncol(users_preg_outcome)])
+m = match(users$user_id, users_preg_outcome$user_id)
+for(colname in colnames){
+  eval(parse(text = paste0("users$",colname," = users_preg_outcome$",colname,"[m]")))
+}
+
+save(users, file = paste0(IO$output_data, "users.Rdata"))
+file.copy(from = paste0(IO$output_data, "users.Rdata"), to = paste0(IO$tmp_data, "users_with_preg_outcome.Rdata"), overwrite = TRUE)
+
+```
+
+
+
+
+```{r PL_descr voluntary vs spontaneous PL}
+
+
+load(paste0(IO$output_data,"days.Rdata"), verbose = TRUE)
+
+dim(days)
+lu(days$user_id)
+
+
+# sexual intercourse before first positive pregnancy test
+
+
+```
+
