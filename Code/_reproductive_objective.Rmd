@@ -1,0 +1,119 @@
+---
+title: "Reproductive objectives of the users"
+author: "Laura Symul"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  bookdown::html_document2: 
+    theme: flatly
+    highlight: haddock
+    toc: yes
+    toc_float: true
+    toc_depth: 5
+    number_sections: true
+    fig_caption: true
+---
+
+
+
+```{r reprod_obj setup, include = FALSE, eval = TRUE, cache = FALSE}
+source("Scripts/00_setup.R")
+```
+
+```{r reprod_obj knitr options}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+
+```{r reprod_obj load data}
+
+load(paste0(IO$output_data, "users.Rdata"), verbose = TRUE)
+load(paste0(IO$output_data, "cycles.Rdata"), verbose = TRUE)
+load(paste0(IO$output_data, "days.Rdata"), verbose = TRUE)
+
+```
+
+# Reproductive objectives of the users
+
+## Based on their sexual behavior
+
+We look at the overlap between their unprotected sexual intercourse and their fertility window.
+
+### Fertile window: counting backward
+
+As a naive approach, we can first define the fertile window counting backward from the end of each cycle.
+
+
+```{r reprod_obj adding fertile window to the days table}
+
+days$fertility = dict$fertility_counting$fertility[
+  match(days$cycleday_from_end, dict$fertility_counting$cycleday_from_end)]
+days$fertility[is.na(days$fertility)] = 0
+
+days$unprot_sex_when_fertile = (days$sex %in% c(2,4)) * days$fertility
+
+
+
+save(days, file = paste0(IO$output_data, "days.Rdata"))
+file.copy(from = paste0(IO$output_data, "days.Rdata") , to = paste0(IO$tmp_data, "days_with_fertility.Rdata"), overwrite = TRUE)
+
+
+```
+
+
+
+```{r reprod_obj reproductive objective score per cycle}
+
+reprod_obj_cycles  = aggregate(unprot_sex_when_fertile ~ cycle_id, days, sum, na.rm = TRUE)
+
+cycles$n_unprot_sex_when_fertile = reprod_obj_cycles$unprot_sex_when_fertile[match(cycles$cycle_id, reprod_obj_cycles$cycle_id)]
+cycles$n_unprot_sex_when_fertile[is.na(cycles$n_unprot_sex_when_fertile)] = 0
+
+cycles$reprod_objective_score = cycles$n_unprot_sex_when_fertile/(cycles$n_unprot_sex + cycles$n_insemination)
+
+
+
+save(cycles, file = paste0(IO$output_data, "cycles.Rdata"))
+file.copy(from = paste0(IO$output_data, "cycles.Rdata") , to = paste0(IO$tmp_data, "cycles_with_reprod_obj_scores.Rdata"), overwrite = TRUE)
+
+```
+
+
+
+
+```{r reprod_obj reproductive objective per users}
+
+
+cycles_tmp = cycles
+cycles_tmp$before_fist_preg_test = cycles$cycle_nb < users$first_cycle_preg[match(cycles$user_id, users$user_id)]
+
+reprod_obj_users =  ddply(cycles_tmp[which(cycles_tmp$before_fist_preg_test),], 
+                            .(user_id), 
+                            .fun = summarize,
+                            avg_reprod_score = mean(reprod_objective_score, na.rm = TRUE),
+                            median_reprod_score = median(reprod_objective_score, na.rm = TRUE),
+                            n_na_reprod_score = sum(is.na(reprod_objective_score)),
+                            n_insemination = sum(n_insemination)
+)
+
+
+column_names = colnames(reprod_obj_users)
+column_names = column_names[-which(column_names %in% colnames(users))]
+m = match(users$user_id, reprod_obj_users$user_id)
+for(column  in column_names){
+  eval(parse(text = paste0("users$",column,"= reprod_obj_users$",column,"[m]")))
+  #eval(parse(text = paste0("users$",column,"[is.na(users$",column,")]= 0")))
+}
+
+
+users$reprod_obj = ifelse(users$n_insemination > 0, "conception",
+                          ifelse(users$n_na_reprod_score > (users$first_cycle_preg/2), "unknown",
+                                 ifelse((users$median_reprod_score < 0.05)&(users$avg_reprod_score < 0.1),
+                                        "contraception","conception")))
+
+
+save(users, file = paste0(IO$output_data, "users.Rdata"))
+file.copy(from = paste0(IO$output_data, "users.Rdata") , to = paste0(IO$tmp_data, "users_with_reprod_obj.Rdata"), overwrite = TRUE)
+
+```
+
+

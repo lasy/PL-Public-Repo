@@ -83,7 +83,7 @@ dict$sex = data.frame(name = c("no sex","protected","unprotected","withdrawal","
                       values = 0:4)
 
 dict$pregnancy_timeline = data.frame(
-  abbreviation = c("FP|VEPL","EPL","LPL","ExPTB","PTB","TB","BF","unclear"),
+  abbreviation = c("FP-VEPL","EPL","LPL","ExPTB","PTB","TB","BF","unclear"),
   name = c("False Positive or Very Early Pregnancy Loss","Early Pregnancy Loss","Late Pregnancy Loss","Extreme Pre-Term Birth","Pre-Term Birth","Term Birth","Breast Feeding", "Unclear"),
   duration_in_weeks = c(6,13, 22 ,28, 37,43,80,Inf), 
   colors = c("gray40","orange","tomato","red","plum","seagreen3","cornflowerblue","gray80"),
@@ -97,6 +97,12 @@ write.table(dict$pregnancy_timeline[,1:3],
             file = paste0(IO$tables,"Pregnancy_timeline.csv"),
             sep = ",",quote = FALSE, row.names = FALSE)
 
+
+dict$fertility_counting = data.frame(cycleday_from_end = -20:-8)
+dict$fertility_counting$fertility = 
+  sigmoid(dict$fertility_counting$cycleday_from_end, ix = -15, s = 0.75) - 
+  sigmoid(dict$fertility_counting$cycleday_from_end, ix = -11, s = 1)
+dict$fertility_counting$fertility = dict$fertility_counting$fertility/max(dict$fertility_counting$fertility)
 
 
 # temperature

@@ -96,6 +96,45 @@ g_hist_lt + annotation_custom(
 
 
 
+```{r PL_descr histograms with reprod objectives }
+
+cycles$reprod_obj = users$reprod_obj[match(cycles$user_id, users$user_id)]
+
+g_hist_lt = ggplot(cycles[!is.na(cycles$preg_test_class),], aes(x = cycle_length, fill = reprod_obj )) + 
+  geom_vline(xintercept = dict$pregnancy_timeline$duration_in_days, col = "gray", linetype = 2)+
+  geom_histogram(aes(y = ..density..), binwidth = 7, position = "identity", alpha = 0.5)+
+  scale_x_continuous(breaks = viz$xaxis_m*28, minor_breaks = viz$xaxis_s*7,  labels = viz$xaxis_m*4, limits = c(0,20*28))+
+  ylab("% of cycles")+ xlab("cycle or pregnancy duration (in weeks)")+
+  scale_fill_discrete(name = "Cycle label")+ theme(legend.position = "bottom")+
+  facet_grid(preg_test_class~.)
+g_hist_lt
+
+g_hist_st = ggplot(cycles[!is.na(cycles$preg_test_class),], aes(x = cycle_length, fill = reprod_obj)) +   
+  geom_vline(xintercept = dict$pregnancy_timeline$duration_in_days, col = "gray", linetype = 2)+
+  geom_histogram(aes(y = ..density..), binwidth = 1, position = "identity", alpha = 0.5)+
+  scale_x_continuous(breaks = viz$xaxis_m*28, minor_breaks = viz$xaxis_s*7,  labels = viz$xaxis_m*4, limits = c(0,150))+
+  ylab("% of cycles")+ xlab("cycle or pregnancy duration (in weeks)")+
+  facet_grid(preg_test_class ~ .)
+g_hist_st
+
+
+g_inset = ggplotGrob(g_hist_st +
+                  theme(plot.background = element_rect(colour = "gray40")))
+
+
+g_hist_lt + annotation_custom(
+    grob = g_inset,
+    xmin = 24*7,
+    xmax = Inf,
+    ymin = 0.03,
+    ymax = Inf
+  )
+
+
+```
+
+
+
 ```{r PL_descr preg outcome}
 
 cycles$preg_outcome = factor(cycles$preg_test_class, 

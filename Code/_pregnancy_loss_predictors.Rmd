@@ -24,7 +24,73 @@ source("Scripts/00_setup.R")
 # Predictors of pregnancy losses
 
 
+## Computing statistics for the 4 cycles before 1st pregnancy tests
+
+```{r preg_loss_pred stats for the 4 cycles before 1st pregnancy}
+
+load(paste0(IO$output_data, "cycles.Rdata"), verbose = TRUE)
+
+
+colnames(cycles)
+cycles$cycle_nb_first_pos_preg_test = users$first_cycle_preg[match(cycles$user_id, users$user_id)]
+cycles$cycles_before_preg_4 = (cycles$cycle_nb >= (cycles$cycle_nb_first_pos_preg_test - 4)) & 
+  (cycles$cycle_nb <= (cycles$cycle_nb_first_pos_preg_test - 1))
+
+
+users_cycles_stats = ddply(cycles[which(cycles$cycles_before_preg_4),], 
+                            .(user_id), 
+                            .fun = summarize,
+                            avg_cycle_length_4 = mean(cycle_length, na.rm = TRUE),
+                            median_cycle_length_4 = median(cycle_length, na.rm = TRUE),
+                            sd_cycle_length_4 = sd(cycle_length, na.rm = TRUE)
+)
+
+head(users_cycles_stats)
+
+
+column_names = colnames(users_cycles_stats)
+column_names = column_names[-which(column_names %in% colnames(users))]
+m = match(users$user_id, users_cycles_stats$user_id)
+for(column  in column_names){
+  eval(parse(text = paste0("users$",column,"= users_cycles_stats$",column,"[m]")))
+  #eval(parse(text = paste0("users$",column,"[is.na(users$",column,")]= 0")))
+}
+
+
+# we also need to record the outcome of the first pregnancy
+
+users_first_preg_outcome = cycles[which(cycles$cycle_nb == cycles$cycle_nb_first_pos_preg_test),c("user_id","preg_outcome")]
+
+users$first_preg_outcome = users_first_preg_outcome$preg_outcome[match(users$user_id, users_first_preg_outcome$user_id)]
+
+users$first_preg_outcome_simple = ifelse(users$first_preg_outcome %in% c("TB","BF","ExPTB","PTB"), "LB",
+                                         ifelse(users$first_preg_outcome %in% c("EPL","LPL"),"PL",NA))
+
+# and the time to first pregnancy test
+users_date_first_preg_test = cycles[which(cycles$cycle_nb == cycles$cycle_nb_first_pos_preg_test),c("user_id","start_date")]
+
+users$time_to_first_pos_test_in_days = as.numeric(
+  users_date_first_preg_test$start_date[match(users$user_id,users_date_first_preg_test$user_id )] - 
+    users$earliest_date)
+
+users$time_to_first_pos_test = users$time_to_first_pos_test_in_days /365
+
+
+#
+save(users, file = paste0(IO$output_data,"users.Rdata"))
+file.copy(from = paste0(IO$output_data,"users.Rdata"), to = paste0(IO$tmp_data,"users_with_stats_4_cycles.Rdata"), overwrite = TRUE)
+
+```
+
+
+
+
+
+
+
 ## Is cycle length predictive of pregnancy outcomes
+
+### stats on all previous cycles
 
 ```{r preg_loss_pred cycle length}
 
@@ -79,6 +145,67 @@ ggplot(u, aes(x = log(cycle_length_before_preg_sd), fill = any_PL))+
 ```
 
 
+### stats on the 4 previous cycles
+
+```{r preg_loss_pred cycle length - 4 cycles}
+
+u = users[which(!is.na(users$first_preg_outcome_simple)),]
+u$is_first_preg_a_PL = (u$first_preg_outcome_simple == "PL")
+
+glm_cl = glm(
+  is_first_preg_a_PL ~ avg_cycle_length_4 + 
+    median_cycle_length_4 + 
+    sd_cycle_length_4,
+  data = u,
+  family = "binomial")
+summary(glm_cl)
+
+
+glm_cl = glm(
+  is_first_preg_a_PL ~ median_cycle_length_4,
+  data = u,
+  family = "binomial")
+
+summary(glm_cl)
+
+
+glm_cl = glm(
+  is_first_preg_a_PL ~ sd_cycle_length_4,
+  data = u,
+  family = "binomial")
+
+summary(glm_cl)
+
+
+glm_cl = glm(
+  is_first_preg_a_PL ~ 
+    sd_cycle_length_4+
+    median_cycle_length_4,
+  data = u,
+  family = "binomial")
+
+summary(glm_cl)
+
+
+
+
+ggplot(u, aes(x = avg_cycle_length_4, fill = is_first_preg_a_PL))+
+  geom_histogram(col = NA, alpha = 0.5, position = "identity", binwidth = 1) + xlim(c(0,100))
+
+
+ggplot(u, aes(x = median_cycle_length_4, fill = is_first_preg_a_PL))+
+  geom_histogram(col = NA, alpha = 0.5, position = "identity", binwidth = 1) + xlim(c(0,100))
+
+
+ggplot(u, aes(x = log10(sd_cycle_length_4), fill = is_first_preg_a_PL))+
+  geom_histogram(col = NA, alpha = 0.5, position = "identity", binwidth = 0.1) 
+
+
+ggplot(u, aes(x = sd_cycle_length_4, fill = is_first_preg_a_PL))+
+  geom_histogram(col = NA, alpha = 0.5, position = "identity", binwidth = 1) + xlim(c(0,50))
+
+
+```
 
 
 
