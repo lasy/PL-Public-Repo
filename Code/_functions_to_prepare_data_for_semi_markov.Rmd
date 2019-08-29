@@ -1,0 +1,182 @@
+---
+title: "Preparing the data for the semi-Markov"
+author: "Laura Symul"
+date: "8/18/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+### General function to extract and format the data from the days table
+
+```{r extract obs}
+prepare_days = function(d){
+  
+  j = which(!is.na(d$date))
+  d = d[j,]
+  
+  o = order(d$user_id, d$date)
+  d = d[o,]
+  
+  dates = d$date
+  d$bleeding = extract_bleeding(d)
+  d$temp = extract_temp(d)
+  mucus = extract_mucus(d)
+  d$mucus_tracked = mucus$mucus_tracked
+  d$mucus_score = mucus$mucus_score
+  d$mucus = mucus$mucus
+  d$LH = extract_LH(d)
+  d$gap = extract_gap(d)
+  d$anylog = 1
+  d$preg_test_score = d$preg_test
+  d$preg_test_score[d$preg_test_score == 0] = NA
+  
+  return(d)
+}
+```
+
+
+### Bleeding
+
+For the bleeding, we will combine
+- menstruation (4 levels)
+- spotting (1 level)
+into a 0-4 bleeding score.
+Then, per user, we will divide their score by their max score.
+
+```{r extract bleeding}
+extract_bleeding = function(d){
+  bleeding = 0*d$menstruation
+  bleeding[which(d$spotting == "True")] = 1
+  bleeding[which(d$menstruation > 0)] = d$menstruation[which(d$menstruation > 0)] + 1
+  if(max(bleeding, na.rm = TRUE)>0){bleeding = bleeding/max(bleeding)}
+  return(bleeding)
+}
+```
+
+### Temperature
+
+For the temperature, we will estimate the follicular and luteal temperature for each cycle and normalize the temperature to show the variations in temperature per cycle.
+
+We will remove questionable temperature.
+And for now, we will not correct for temperature time
+
+```{r extract temp}
+
+
+identify_temp_phases = function(dc){
+  j = which(!is.na(dc$temperature))
+  temp = dc$temperature[j]
+  if(length(temp)>5){
+    median_diffs = sapply(3:(length(temp)-2), FUN = function(j,x){median(x[j:length(x)]) - median(x[1:j])}, temp)
+    k = which.max(median_diffs)+2
+    low_temp = median(temp[1:(k-1)])
+    high_temp = median(temp[(k+1):length(temp)])
+    delta_t = high_temp - low_temp
+  }else{delta_t = 0}
+  if((delta_t < 0.3) | (delta_t > 2)){
+    delta_t = 0.7
+    low_temp = quantile(temp, p = 0.25)
+    high_temp = low_temp + delta_t
+  }
+  temp_phases = list(delta_t = delta_t, low_temp = low_temp, high_temp = high_temp)
+  return(temp_phases)
+} 
+
+
+extract_temp = function(d){
+  temp = NA * d$temperature
+  cycle_ids = unique(d$cycle_id[!is.na(d$cycle_id)])
+  for(cycle in cycle_ids){
+    dc = d[which((d$cycle_id == cycle) & (d$questionable_temp != "True")),]
+    if(sum(!is.na(dc$temperature))>0){
+      temp_phases = identify_temp_phases(dc)
+      this_cycle_temp = (dc$temperature - temp_phases$low_temp) / temp_phases$delta_t
+      m = match(dc$day_id, d$day_id)
+      temp[m] = this_cycle_temp
+    }
+  }
+  return(temp)
+}
+```
+
+
+
+### Mucus
+
+For the mucus, we will convert the categories into a continuous score [1:15] that reflects how fertile the mucus is.
+We will then normalize this score by dividing it by the max for a user.
+
+```{r extract mucus}
+
+extract_mucus = function(d){
+  mucus = rep(NA, nrow(d))
+  
+  mucus_tracked = mucus
+  mucus_tracked[which(d$no_fluid == "True")] = "none"
+  mucus_tracked[which(d$fluid_sticky > 0)] = 
+    paste0("sticky","_",c("little","medium","lots"))[d$fluid_sticky[which(d$fluid_sticky > 0)]]
+  mucus_tracked[which(d$fluid_creamy > 0)] = 
+    paste0("creamy","_",c("little","medium","lots"))[d$fluid_creamy[which(d$fluid_creamy > 0)]]
+  mucus_tracked[which(d$fluid_eggwhite > 0)] = 
+    paste0("eggwhite","_",c("little","medium","lots"))[d$fluid_eggwhite[which(d$fluid_eggwhite > 0)]]
+  mucus_tracked[which(d$fluid_watery > 0)] = 
+    paste0("watery","_",c("little","medium","lots"))[d$fluid_watery[which(d$fluid_watery > 0)]]
+  
+  if(sum(!is.na(mucus_tracked))>0){
+    mucus_score = par$dict$mucus$score[match(mucus_tracked,par$dict$mucus$type)]
+    d$mucus_score = mucus_score
+    agg = aggregate(mucus_score ~ user_id, d, quantile, prob = 0.99, na.rm = TRUE)
+    d$max_mucus_score = agg$mucus_score[match(d$user_id, agg$user_id)]
+    d$max_mucus_score[is.na(d$max_mucus_score) | (d$max_mucus_score == 0)] = 1
+    mucus = mucus_score/d$max_mucus_score
+  }else{
+    mucus_score = mucus
+  }
+  mucus = list(mucus_tracked = mucus_tracked,  mucus_score = mucus_score, mucus = mucus)
+  return(mucus)
+}
+
+```
+
+### LH
+
+For LH test, we will give more weight to the latest test of each cycle (as some people with PCOS might have several positive LH tests).
+
+
+```{r extract LH}
+
+extract_LH = function(d){
+  LH = c(0,0.5,-1)[d$opk+1]
+  if(sum(LH > 0, na.rm = TRUE)>1){
+    d$cycle_id = as.character(d$cycle_id)
+    k = which(is.na(d$cycle_id))
+    d$cycle_id[k] = "fake"
+    d$cycleday[k] = 0
+    agg = aggregate( cycleday ~ cycle_id ,d[which(LH > 0),c("cycle_id","cycleday","opk")], max)
+    agg$cycleday_id = paste0(agg$cycle_id, "_", agg$cycleday)
+    d$cycleday_id = paste0(d$cycle_id, "_", d$cycleday)
+    j = which(d$cycleday_id %in% agg$cycleday_id)
+    LH[j] = 1
+  }else{if(sum(LH>0, na.rm = TRUE) == 1){LH[LH == 0.5] = 1}}
+  return(LH)
+}
+
+```
+
+
+
+### Gaps
+
+```{r extract gaps}
+extract_gap = function(d){
+  gap = ave(as.numeric(d$date), by = d$user_id, FUN = function(x){c(diff(x),NA)})
+  return(gap)
+}
+```
+
+

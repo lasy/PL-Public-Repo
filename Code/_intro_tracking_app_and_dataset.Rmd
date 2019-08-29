@@ -17,7 +17,11 @@ output:
 
 # Kindara app and dataset
 
-![](../Figures Tables Media/Media/kindara_screen.PNG)
+A de-idendified dataset was provided for this study by the app Kindara, which is dedicated to provide menstruating individual with a platform to digitally track their cycles and associated fertility signs.
+
+```{r screenshot Kindara, out.width = "400px"}
+knitr::include_graphics("../Figures Tables Media/Media/kindara_screen.PNG")
+```
 
 
 

@@ -1,7 +1,7 @@
 # code parameters
 par = list()
 par$IO_user = Sys.getenv("LOGNAME")
-par$dataset =  "Kindara_full" # "Kindara_full" "Kindara_subset"
+par$dataset =  "Kindara_subset" # "Kindara_full" "Kindara_subset"
 par$n_cores = detectCores() - 1
 par$max_batch_size = 5000
 par$min_n_batches = 10
@@ -15,6 +15,18 @@ source("Scripts/00_variables_IO.R")
 
 #var = list()
 
+
+par$dict = list()
+par$dict$mucus = data.frame(type = c("none",
+                                     paste0("creamy_",c("little","medium","lots")), 
+                                     paste0("sticky_",c("little","medium","lots")),
+                                     paste0("eggwhite_",c("little","medium","lots")),
+                                     paste0("watery_",c("little","medium","lots"))),
+                            score = c(0,
+                                         1,0,0,
+                                         1,0,0,
+                                         3,5,6,
+                                         2,4,5))
 
 
 

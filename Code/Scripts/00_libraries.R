@@ -1,8 +1,8 @@
 
-package_list = c('knitr',
-                 #'data.table',
-                 'MASS',
-                 'ggplot2','ggthemes','mapdata','gridExtra','quantreg','hexbin','ggalluvial',
+package_list = c('knitr','bookdown','styler',
+                 'tidyverse','readr','magrittr',
+                 #'MASS',
+                 'ggplot2','ggthemes','gridExtra','quantreg','hexbin',
                  # 'plotly',
                  'scales','reshape',
                  #'HMM',
@@ -10,8 +10,10 @@ package_list = c('knitr',
                  'plyr','dplyr',
                  'parallel','doParallel',
                  'tictoc',
-                 'styler',
-                 'bookdown'
+                 'feather',
+                 'igraph',
+                 'mhsmm'
+                 
                  #'biwavelet'
                  #'klaR', 'cluster',
                  #'Rcpp',

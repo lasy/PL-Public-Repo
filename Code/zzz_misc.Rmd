@@ -11,6 +11,117 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 
+
+```{r data_prep filtering users}
+
+j = which(
+  (users$first_cycle_preg >= 5)&
+    (users$shortest_cycle_before_first_pos_preg > 15) &
+    ((users$n_cycles_after_first_preg >=2) | (users$n_days_obs_after_first_preg >= 20)))
+
+# users
+users = users[j,]
+save(users, file = paste0(IO$output_data,"users.Rdata"))
+file.copy(from = paste0(IO$output_data,"users.Rdata"), to = paste0(IO$tmp_data,"users_filtered.Rdata"), overwrite = TRUE)
+
+# cycles
+cycles = cycles[which(cycles$user_id %in% users$user_id),]
+save(cycles, file = paste0(IO$output_data,"cycles.Rdata"))
+file.copy(from = paste0(IO$output_data,"cycles.Rdata"), to = paste0(IO$tmp_data,"cycles_filtered.Rdata"), overwrite = TRUE)
+
+# days
+days_folder = paste0(IO$output_data,"Days/")
+
+cl = makeCluster(par$n_cores)
+registerDoParallel(cl)
+
+days_files = list.files(days_folder)
+
+days = foreach(file  = days_files, .combine = rbind) %dopar%
+{
+  load(paste0(days_folder,file), verbose = TRUE)
+  colnames(days)
+  dim(days)
+  j = which(days$user_id %in% users$user_id)
+  days = days[j,]
+  return(days)
+}
+
+stopImplicitCluster()
+
+save(days, file = paste0(IO$output_data,"days.Rdata"))
+file.copy(from = paste0(IO$output_data,"days.Rdata"), to = paste0(IO$tmp_data,"days_filtered.Rdata"), overwrite = TRUE)
+
+```
+
+
+
+
+```{r}
+ obs = data.frame(date = dates, 
+                   bleeding = bleeding, 
+                   temp = temp, 
+                   mucus_tracked = mucus$mucus_tracked,
+                   mucus_score = mucus$mucus_score,
+                   mucus = mucus$mucus,
+                   LH = LH, 
+                   preg_test = preg_test, 
+                   gap = gap, 
+                   anylog = anylog)
+```
+
+
+```{r}
+
+
+input_folder = paste0(IO$output_data,"Days_long/")
+days_files = paste0("days_",1:10,".feather")
+
+foreach(file = days_files) %do% {
+  cat(file, "\n")
+  days = read_feather(paste0(input_folder,file))
+  forward_agg =  ddply(days[which(days$cycleday <= 28),],
+                       .(cycleday),
+                       .fun = summarize,
+                       cycleday_type = "cycleday",
+                       temp_mean = mean(temp, na.rm = TRUE),
+                       temp_sd = sd(temp, na.rm = TRUE),
+                       mucus_mean = mean(mucus, na.rm = TRUE),
+                       mucus_sd = sd(mucus, na.rm = TRUE)
+                       
+  )
+  
+  backward_agg =  ddply(days[which(days$cycleday_from_end >= -28),],
+                        .(cycleday_from_end),
+                        .fun = summarize,
+                        cycleday_type = "cycleday_from_end",
+                        temp_mean = mean(temp, na.rm = TRUE),
+                        temp_sd = sd(temp, na.rm = TRUE),
+                        mucus_mean = mean(mucus, na.rm = TRUE),
+                        mucus_sd = sd(mucus, na.rm = TRUE)
+  )
+  colnames(backward_agg)
+  
+  g = ggplot(backward_agg, aes(x = cycleday_from_end))+
+    geom_line(aes(y = mucus_mean))+
+    geom_line(aes(y = temp_mean), col = "red")+
+    geom_ribbon(aes(ymin = mucus_mean - mucus_sd/2, ymax = mucus_mean + mucus_sd/2), alpha = 0.2)+
+    geom_ribbon(aes(ymin = temp_mean - temp_sd/2, ymax = temp_mean + temp_sd/2), alpha = 0.2, fill = "red")
+  
+  print(g)
+  
+  g = ggplot(forward_agg, aes(x = cycleday))+
+    geom_line(aes(y = mucus_mean))+
+    geom_line(aes(y = temp_mean), col = "red")+
+    geom_ribbon(aes(ymin = mucus_mean - mucus_sd/2, ymax = mucus_mean + mucus_sd/2), alpha = 0.2)+
+    geom_ribbon(aes(ymin = temp_mean - temp_sd/2, ymax = temp_mean + temp_sd/2), alpha = 0.2, fill = "red")
+  
+  print(g)
+  
+}
+```
+
+
 ```{r tmp test, include = FALSE}
 
 n_foll = 6

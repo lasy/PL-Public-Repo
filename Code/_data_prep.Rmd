@@ -27,23 +27,24 @@ knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 
 # Data preparation
 
-## Load CSV, filter users, save Rdata files
+## Load CSV, filter users, save feather files
 
-Transform CSV into binary Rdata files
+Transform CSV into feather files
 
 ```{r data_prep load days CSV and identify users with at least one positive pregnancy test}
 
 input_folder = paste0(IO$input_data, "Days/")
-output_folder = paste0(IO$tmp_data,"Days_Rdata_from_csv/")
+output_folder = paste0(IO$tmp_data,"Days_feather_from_csv/")
 if(!dir.exists(output_folder)){dir.create(output_folder)}
 
 files = list.files(input_folder)
 
-cl = makeCluster(par$n_cores)
+tic()
+cl = makeCluster(par$n_cores, outfile="")
 registerDoParallel(cl)
 
-users = foreach(file = files, .combine = c) %dopar%{
-
+users = foreach(file = files, .combine = c, .packages = "feather") %dopar%{
+  
   days = read.csv(paste0(input_folder,file), stringsAsFactors = FALSE) 
   
   # colnames
@@ -51,20 +52,22 @@ users = foreach(file = files, .combine = c) %dopar%{
   
   # identifying
   users_with_pos_preg_tests = unique(days$user_id[which(days$preg_test == 1)])
- 
+  
   # formating
   days$date = as.Date(days$date)
   # transforming first_day into a logical
   days$first_day_o = days$first_day
   days$first_day = ifelse(days$first_day == "True", TRUE, FALSE)
   
-  new_file_name = gsub("csv","Rdata",file)
-  save(days, file = paste0(output_folder,new_file_name))
-
+  new_file_name = gsub("csv","feather",file)
+  write_feather(days, path = paste0(output_folder,new_file_name))
+  #save(days, file = paste0(output_folder,new_file_name))
+  
   return(users_with_pos_preg_tests)
 }
 
 stopImplicitCluster()
+toc()
 
 save(users, file = paste0(IO$tmp_data, "full_list_users_with_pos_preg_tests.Rdata"))
 
@@ -76,15 +79,16 @@ Create a user table from the list of users that ever logged a positive pregnancy
 
 ```{r data_prep create user tables and batches}
 
-users = data.frame(user_id = as.character(unique(users)), pos_preg_test = TRUE, stringsAsFactors = FALSE)
-users = users[order(users$user_id),]
+users_df = data.frame(user_id = as.character(unique(users)), pos_preg_test = TRUE, stringsAsFactors = FALSE)
+users = users_df[order(users_df$user_id),]
+rm(users_df)
 
 batch_size = min(par$max_batch_size, ceiling(nrow(users)/par$min_n_batches))
 n_batches = ceiling(nrow(users)/batch_size)
 users$batch = rep(1:n_batches, each = batch_size)[1:nrow(users)]
 
-save(users, file = paste0(IO$output_data, "users.Rdata"))
-ok = file.copy(from = paste0(IO$output_data, "users.Rdata"), to = paste0(IO$tmp_data, "users_with_pos_preg_tests.Rdata"), overwrite = TRUE)
+write_feather(users, path = paste0(IO$output_data, "users.feather"))
+ok = file.copy(from = paste0(IO$output_data, "users.feather"), to = paste0(IO$tmp_data, "users_with_pos_preg_tests.feather"), overwrite = TRUE)
 
 ```
 
@@ -93,7 +97,7 @@ Filter the days table and re-organize users into batches
 
 ```{r data_prep filter days and split by batches}
 
-input_folder = paste0(IO$tmp_data,"Days_Rdata_from_csv/")
+input_folder = paste0(IO$tmp_data,"Days_feather_from_csv/")
 tmp_folder = paste0(IO$tmp_data,"Days_filtered_split_batches/")
 if(!dir.exists(tmp_folder)){dir.create(tmp_folder)}
 
@@ -102,10 +106,9 @@ files = list.files(input_folder)
 cl = makeCluster(par$n_cores)
 registerDoParallel(cl)
 
-ok = foreach(file = files) %dopar%{
-
-  load(paste0(input_folder,file), verbose = TRUE) 
-  full_days = days
+ok = foreach(file = files, .packages = "feather") %dopar%{
+  
+  full_days = read_feather(path = paste0(input_folder,file)) 
   
   # filtering
   full_days = full_days[full_days$user_id %in% users$user_id,]
@@ -115,7 +118,7 @@ ok = foreach(file = files) %dopar%{
   for(b in unique(users$batch[users$user_id %in% full_days$user_id])){
     days = full_days[full_days$user_id %in% users$user_id[users$batch == b],]
     days$batch = b
-    save(days, file = paste0(tmp_folder,"batch_",b,"_",file))
+    write_feather(days, path = paste0(tmp_folder,"batch_",b,"_",file))
   }
   
 }
@@ -139,18 +142,25 @@ input_files = foreach(b = unique(users$batch), .combine = rbind) %do%{
   
   cl = makeCluster(par$n_cores)
   registerDoParallel(cl)
-
+  
   batch_files = files[grep(paste0("batch_",b,"_day"), files)]
   
-  days = foreach(file = batch_files, .combine = rbind) %dopar%{
-      load(paste0(input_folder,file), verbose = TRUE) 
-      return(days)
+  days = foreach(file = batch_files, .combine = rbind, .packages = "feather") %dopar%{
+    days = read_feather(path = paste0(input_folder,file))
+    return(days)
   }
   stopImplicitCluster()
   
+  # checking for duplicated rows
+  d = duplicated(days)
+  j = which(d)
+  if(length(j)>0){
+    days = days[-j,]
+  }
+  dim(days)
   
-  save(days, file = paste0(output_folder,"days_",b,".Rdata"))
-  file.copy(from = paste0(output_folder,"days_",b,".Rdata"), to = paste0(tmp_folder,"days_",b,".Rdata"), overwrite = TRUE)
+  write_feather(days, path = paste0(output_folder,"days_",b,".feather"))
+  file.copy(from = paste0(output_folder,"days_",b,".feather"), to = paste0(tmp_folder,"days_",b,".feather"), overwrite = TRUE)
   
   input_files = aggregate(input_file_id ~ user_id, days, function(x){paste0(unique(sort(x)),collapse = "|")})
   return(input_files)
@@ -165,8 +175,8 @@ save(input_files, file = paste0(IO$tmp_data, "input_files.Rdata"))
 input_files = aggregate(input_file_id ~ user_id, input_files, function(x){paste0(unique(sort(x)),collapse = "|")})
 users$input_files = input_files$input_file_id[match(users$user_id, input_files$user_id)]
 
-save(users, file = paste0(IO$output_data,"users.Rdata"))
-file.copy(from = paste0(IO$output_data,"users.Rdata"), to = paste0(IO$tmp_data,"users_with_original_file_id.Rdata"), overwrite = TRUE)
+write_feather(users, path = paste0(IO$output_data,"users.feather"))
+file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data,"users_with_original_file_id.feather"), overwrite = TRUE)
 
 ```
 
@@ -202,12 +212,6 @@ dim(cycles)
 
 We thus need to create the cycles from the days table by looking at which days have the flag `first_day`.
 
-We will take this opportunity of going through the days table to
-
-* clean some columns (transform  `first_day` into a logical)
-
-* remove duplicated rows in the days table
-
 
 ```{r data_prep create cycle table, eval = TRUE}
 
@@ -216,20 +220,12 @@ We will take this opportunity of going through the days table to
 days_input_folder = paste0(IO$output_data,"Days/")
 days_files = list.files(days_input_folder)
 
-cycles = foreach(file  = days_files, .combine = rbind) %dopar%
+cycles = foreach(file  = days_files, .combine = rbind, .packages = "feather") %dopar%
 {
-  load(paste0(days_input_folder,file), verbose = TRUE)
+  days = read_feather(path = paste0(days_input_folder,file))
   colnames(days)
   dim(days)
   
-  # checking for duplicated rows
-  d = duplicated(days)
-  j = which(d)
-  if(length(j)>0){
-    days = days[-j,]
-  }
-  dim(days)
-
   # creating the cycles table
   cycles = days[days$first_day, c("user_id","date")]
   colnames(cycles)[which(colnames(cycles) == "date")] = "start_date"
@@ -238,14 +234,14 @@ cycles = foreach(file  = days_files, .combine = rbind) %dopar%
   j = which(cycles$user_id %in% users$user_id)
   length(j)
   cycles = cycles[j,]
-
+  
   return(cycles)
 }
 
 dim(cycles)
 
-save(cycles, file = paste0(IO$output_data,"cycles.Rdata"))
-file.copy(from = paste0(IO$output_data,"cycles.Rdata"), to = paste0(IO$tmp_data,"cycles_first_version.Rdata"), overwrite = TRUE)
+write_feather(cycles, path = paste0(IO$output_data,"cycles.feather"))
+file.copy(from = paste0(IO$output_data,"cycles.feather"), to = paste0(IO$tmp_data,"cycles_first_version.feather"), overwrite = TRUE)
 
 ```
 
@@ -254,8 +250,7 @@ We create unique cycle ID in the cycle table
 
 ```{r data_prep create cycle_nb and cycle_id in the cycles table }
 
-
-# load(paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
+# cycles = read_feather(path = paste0(IO$output_data,"users.Rdata"))
 cycles = cycles[order(cycles$user_id, cycles$start_date),]
 
 cycles$cycle_nb = ave(rep(1, nrow(cycles)), cycles$user_id, FUN = cumsum)
@@ -266,8 +261,8 @@ cycles$end_date = cycles$start_date[match(cycles$cycle_id, paste0(cycles$user_id
 cycles$cycle_length = as.numeric(cycles$end_date - cycles$start_date + 1)
 
 
-save(cycles, file = paste0(IO$output_data,"cycles.Rdata"))
-file.copy(from = paste0(IO$output_data,"cycles.Rdata"), to = paste0(IO$tmp_data,"cycles_with_nb_and_id.Rdata"), overwrite = TRUE)
+write_feather(cycles, path = paste0(IO$output_data,"cycles.feather"))
+file.copy(from = paste0(IO$output_data,"cycles.feather"), to = paste0(IO$tmp_data,"cycles_with_nb_and_id.feather"), overwrite = TRUE)
 
 ```
 
@@ -279,22 +274,22 @@ days_folder = paste0(IO$output_data,"Days/")
 days_tmp_folder = paste0(IO$tmp_data,"Days_with_cycle_id/")
 if(!dir.exists(days_tmp_folder)){dir.create(days_tmp_folder)}
 
-
-
 cl = makeCluster(par$n_cores)
 registerDoParallel(cl)
 
 days_files = list.files(days_folder)
 
-ok = foreach(file  = days_files) %dopar%
+ok = foreach(file  = days_files, .packages = "feather") %dopar%
 {
-  load(paste0(days_folder,file), verbose = TRUE)
+  days = read_feather(path = paste0(days_folder,file))
   colnames(days)
   dim(days)
   
   # take the part of cycles that matches with the days users
   j = which((cycles$user_id %in% unique(days$user_id)) & (!is.na(cycles$cycle_length)))
   cycles_sub = cycles[j,]
+  # for unfinished cycles, we will consider a time-window of 3 years = 1095 days after the start of the cycle to capture information about these on-going cycles.
+  cycles_sub$cycle_length[which(is.na(cycles_sub$cycle_length))] = 1095
   
   # expand cycles for each day
   cycles_sub_exp = as.data.frame(lapply(cycles_sub, rep, cycles_sub$cycle_length))
@@ -313,12 +308,8 @@ ok = foreach(file  = days_files) %dopar%
   
   days$cycleday_from_end = days$cycleday - days$cycle_length - 1
   
-  #d = duplicated(days[,c("user_id","date","cycleday")])
-  #if(sum(d)>0){days = days[-which(d),]}
-  
-  save(days, file = paste0(days_folder, file))
+  write_feather(days, path = paste0(days_folder, file))
   file.copy(from = paste0(days_folder, file), to = paste0(days_tmp_folder, file), overwrite = TRUE)
-
 }
 
 stopImplicitCluster()
@@ -332,25 +323,25 @@ Now we can aggregate the days table to report useful information on the cycles t
 
 * aggregate to create the cycles table
 
-    + user_id --v
-    + cycle_id  --v
-    + cycle_nb  --v
-    + cycle_length  --v
-    + n_days_obs  --v
-    + day_last_obs [cycleday]  --v
-    + n_pos_preg_test  --v
-    + n_neg_preg_test  --v
-    + day_first_pos_preg_test [cycleday]  --v
-    + day_last_pos_preg_test [cycleday]  --v
-    + n_days_obs_after_first_pos_preg_test  --v
-    + last_preg_test (0, 1, -1)  --v
-    + preg_test_class (0  = no preg test; 1 = at least one positive preg test ; -1 = only negative preg tests)
-    + n_tot_sex  --v
-    + n_prot_sex  --v
-    + n_unprot_sex  --v
-    + n_withdrawal  --v
-    + n_insemination  --v
-    + n_BBT  --v
++ user_id --v
++ cycle_id  --v
++ cycle_nb  --v
++ cycle_length  --v
++ n_days_obs  --v
++ day_last_obs [cycleday]  --v
++ n_pos_preg_test  --v
++ n_neg_preg_test  --v
++ day_first_pos_preg_test [cycleday]  --v
++ day_last_pos_preg_test [cycleday]  --v
++ n_days_obs_after_first_pos_preg_test  --v
++ last_preg_test (0, 1, -1)  --v
++ preg_test_class (0  = no preg test; 1 = at least one positive preg test ; -1 = only negative preg tests)
++ n_tot_sex  --v
++ n_prot_sex  --v
++ n_unprot_sex  --v
++ n_withdrawal  --v
++ n_insemination  --v
++ n_BBT  --v
 
 
 
@@ -366,9 +357,9 @@ registerDoParallel(cl)
 
 days_files = list.files(input_days_folder)
 
-cycles_agg = foreach(file  = days_files, .combine = rbind, .packages = c('plyr','dplyr')) %dopar%
+cycles_agg = foreach(file  = days_files, .combine = rbind, .packages = c('plyr','dplyr','feather')) %dopar%
 {
-  load(paste0(input_days_folder,file), verbose = TRUE)
+  days = read_feather(path = paste0(input_days_folder,file))
   colnames(days)
   dim(days)
   
@@ -376,7 +367,7 @@ cycles_agg = foreach(file  = days_files, .combine = rbind, .packages = c('plyr',
   days$preg_test_o = days$preg_test
   days$preg_test[days$preg_test == 2] = -1
   
-  save(days, file = paste0(output_days_folder,file))
+  write_feather(days, path = paste0(output_days_folder,file))
   
   # 
   cycles_agg = ddply(days, 
@@ -388,7 +379,7 @@ cycles_agg = foreach(file  = days_files, .combine = rbind, .packages = c('plyr',
                      last_obs_day = max(cycleday),
                      n_pos_preg_test = sum(preg_test == 1),
                      n_neg_preg_test = sum(preg_test == -1),
-                     day_first_pos_preg_test = min( cycleday_from_end * (preg_test == 1), na.rm = TRUE),
+                     day_from_end_first_pos_preg_test = min( cycleday_from_end * (preg_test == 1), na.rm = TRUE),
                      day_last_pos_preg_test = max(cycleday * (preg_test == 1), na.rm = TRUE),
                      day_last_preg_test  = max(cycleday * (preg_test %in%  c(1,-1)), na.rm = TRUE),
                      n_tot_sex = sum(sex > 0, na.rm = TRUE),
@@ -399,40 +390,40 @@ cycles_agg = foreach(file  = days_files, .combine = rbind, .packages = c('plyr',
                      n_BBT = sum(!is.na(temperature), na.rm = TRUE))
   
   
-   j = which(cycles_agg$day_first_pos_preg_test < 0)
-   cycles_agg$day_first_pos_preg_test[j] = cycles_agg$cycle_length[j] + cycles_agg$day_first_pos_preg_test[j] + 1
-   
-   cycles_agg$n_pos_preg_test[is.na(cycles_agg$n_pos_preg_test)] = 0
-   cycles_agg$n_neg_preg_test[is.na(cycles_agg$n_neg_preg_test)] = 0
-   cycles_agg$day_first_pos_preg_test[is.infinite(cycles_agg$day_first_pos_preg_test)] = 0
-   cycles_agg$day_last_pos_preg_test[is.infinite(cycles_agg$day_last_pos_preg_test)] = 0
-   
-   
-   # n_days_obs_after_first_pos_preg_test
-   days$day_first_pos_preg_test = cycles_agg$day_first_pos_preg_test[match(days$cycle_id, cycles_agg$cycle_id)]
-   days$after_first_pos_preg_test = (days$day_first_pos_preg_test > 0) & (days$cycleday > days$day_first_pos_preg_test)
-   
-   cycles_agg2 = aggregate(after_first_pos_preg_test ~ cycle_id, days, sum, na.rm = TRUE )
-   cycles_agg$n_days_obs_after_first_pos_preg_test = cycles_agg2$after_first_pos_preg_test[match(cycles_agg$cycle_id, cycles_agg2$cycle_id)]
-   
-    # last_preg_test
-   days$day_last_preg_test = cycles_agg$day_last_preg_test[match(days$cycle_id, cycles_agg$cycle_id)]
-   cycles_agg2 = days[which(days$cycleday == days$day_last_preg_test),]
-   cycles_agg$last_preg_test = cycles_agg2$preg_test[match(cycles_agg$cycle_id, cycles_agg2$cycle_id)]
-   cycles_agg$last_preg_test[is.na(cycles_agg$last_preg_test)]= 0
-   
-   # preg_test_class
-   #cycles_agg$preg_test_class = ifelse(cycles_agg$n_pos_preg_test>0,ifelse(cycles_agg$last_preg_test == 1, "pregnant","pregnancy loss"), ifelse(cycles_agg$n_neg_preg_test>0,"not pregnant", "not tested"))
-   cycles_agg$preg_test_class = ifelse(cycles_agg$n_pos_preg_test>0,"pregnant", ifelse(cycles_agg$n_neg_preg_test>0,"not pregnant", "not tested"))
-   
-   
-   return(cycles_agg)
-
+  cycles_agg$day_first_pos_preg_test = NA
+  j = which(cycles_agg$day_from_end_first_pos_preg_test < 0)
+  cycles_agg$day_first_pos_preg_test[j] = cycles_agg$cycle_length[j] + cycles_agg$day_from_end_first_pos_preg_test[j] + 1
+  
+  cycles_agg$n_pos_preg_test[is.na(cycles_agg$n_pos_preg_test)] = 0
+  cycles_agg$n_neg_preg_test[is.na(cycles_agg$n_neg_preg_test)] = 0
+  cycles_agg$day_first_pos_preg_test[is.infinite(cycles_agg$day_first_pos_preg_test)] = 0
+  cycles_agg$day_last_pos_preg_test[is.infinite(cycles_agg$day_last_pos_preg_test)] = 0
+  
+  # n_days_obs_after_first_pos_preg_test
+  days$day_first_pos_preg_test = cycles_agg$day_first_pos_preg_test[match(days$cycle_id, cycles_agg$cycle_id)]
+  days$after_first_pos_preg_test = (days$day_first_pos_preg_test > 0) & (days$cycleday > days$day_first_pos_preg_test)
+  
+  cycles_agg2 = aggregate(after_first_pos_preg_test ~ cycle_id, days, sum, na.rm = TRUE )
+  cycles_agg$n_days_obs_after_first_pos_preg_test = cycles_agg2$after_first_pos_preg_test[match(cycles_agg$cycle_id, cycles_agg2$cycle_id)]
+  
+  # last_preg_test
+  days$day_last_preg_test = cycles_agg$day_last_preg_test[match(days$cycle_id, cycles_agg$cycle_id)]
+  cycles_agg2 = days[which(days$cycleday == days$day_last_preg_test),]
+  cycles_agg$last_preg_test = cycles_agg2$preg_test[match(cycles_agg$cycle_id, cycles_agg2$cycle_id)]
+  cycles_agg$last_preg_test[is.na(cycles_agg$last_preg_test)]= 0
+  
+  # preg_test_class
+  #cycles_agg$preg_test_class = ifelse(cycles_agg$n_pos_preg_test>0,ifelse(cycles_agg$last_preg_test == 1, "pregnant","pregnancy loss"), ifelse(cycles_agg$n_neg_preg_test>0,"not pregnant", "not tested"))
+  cycles_agg$preg_test_class = ifelse(cycles_agg$n_pos_preg_test>0,"pregnant", ifelse(cycles_agg$n_neg_preg_test>0,"not pregnant", "not tested"))
+  
+  
+  return(cycles_agg)
+  
 }
 
 stopImplicitCluster()
 
-save(cycles_agg, file = paste0(IO$tmp_data, "cycles_agg.Rdata"))
+write_feather(cycles_agg, path = paste0(IO$tmp_data, "cycles_agg.feather"))
 
 ```
 
@@ -446,8 +437,8 @@ for(column  in column_names){
   #eval(parse(text = paste0("cycles$",column,"[is.na(cycles$",column,")]= 0")))
 }
 
-save(cycles, file = paste0(IO$output_data,"cycles.Rdata"))
-file.copy(from = paste0(IO$output_data,"cycles.Rdata"), to = paste0(IO$tmp_data,"cycles_with_agg.Rdata"), overwrite = TRUE)
+write_feather(cycles, path = paste0(IO$output_data,"cycles.feather"))
+file.copy(from = paste0(IO$output_data,"cycles.feather"), to = paste0(IO$tmp_data,"cycles_with_agg.feather"), overwrite = TRUE)
 
 
 ```
@@ -455,12 +446,12 @@ file.copy(from = paste0(IO$output_data,"cycles.Rdata"), to = paste0(IO$tmp_data,
 
 
 
-## Filtering users 
+## Augmenting the user table
 
 
-- with at least 4 cycles before first positive pregnancy test (1st positive preg test in cycle 5+)
-- none of these cycles should be shorter than 15 days
-- with at least 2 cycles or 20+ days with observations after the first positive preg test (from cycle 6)
+- with number of cycles before first positive pregnancy test
+- with number of cycles after last positive pregnancy test
+- with length of shortest cycle before first pregnancy test
 
 ```{r data_prep agg users}
 
@@ -473,21 +464,26 @@ users_agg = suppressWarnings(
         n_cycles = max(cycle_nb, na.rm = TRUE),
         n_days_obs = sum(n_days_obs, na.rm = TRUE),
         n_pos_cycles = sum(n_pos_preg_test > 0, na.rm = TRUE),
-        first_cycle_preg = min(cycle_nb[n_pos_preg_test > 0], na.rm = TRUE))
+        first_cycle_preg = min(cycle_nb[n_pos_preg_test > 0], na.rm = TRUE),
+        last_cycle_preg = max(cycle_nb[n_pos_preg_test > 0], na.rm = TRUE)
+        )
 )
 
 users_agg$first_cycle_preg[is.infinite(users_agg$first_cycle_preg)] =  0
+users_agg$last_cycle_preg[is.infinite(users_agg$last_cycle_preg)] =  Inf
 
-# n_obs_after_first_preg
+
+# n_obs_after_last_preg
 cycles_tmp = cycles
 cycles_tmp$first_cycle_preg = users_agg$first_cycle_preg[match(cycles_tmp$user_id, users_agg$user_id)]
-users_agg2 = aggregate(n_days_obs ~ user_id, cycles_tmp[cycles_tmp$cycle_nb > cycles_tmp$first_cycle_preg,  ], sum, na.rm = TRUE)
+cycles_tmp$last_cycle_preg = users_agg$last_cycle_preg[match(cycles_tmp$user_id, users_agg$user_id)]
+users_agg2 = aggregate(n_days_obs ~ user_id, cycles_tmp[cycles_tmp$cycle_nb > cycles_tmp$last_cycle_preg,  ], sum, na.rm = TRUE)
 
-users_agg$n_days_obs_after_first_preg = users_agg2$n_days_obs[match(users_agg$user_id, users_agg2$user_id)]
-users_agg$n_days_obs_after_first_preg [is.na(users_agg$n_days_obs_after_first_preg )] = 0
+users_agg$n_days_obs_after_last_preg = users_agg2$n_days_obs[match(users_agg$user_id, users_agg2$user_id)]
+users_agg$n_days_obs_after_last_preg[is.na(users_agg$n_days_obs_after_first_preg )] = 0
 
-users_agg$n_cycles_after_first_preg = users_agg$n_cycles - users_agg$first_cycle_preg
-
+users_agg$n_cycles_after_last_preg = users_agg$n_cycles - users_agg$last_cycle_preg
+users_agg$n_cycles_after_last_preg[is.infinite(users_agg$n_cycles_after_last_preg)] = 0
 
 # minimal cycle length before the first positive preg test
 users_agg2 = aggregate(cycle_length ~ user_id, 
@@ -495,8 +491,6 @@ users_agg2 = aggregate(cycle_length ~ user_id,
                        min, na.rm = TRUE)
 
 users_agg$shortest_cycle_before_first_pos_preg = users_agg2$cycle_length[match(users_agg$user_id, users_agg2$user_id)]
-
-
 
 # adding new columns to the users table
 
@@ -507,51 +501,9 @@ for(column  in column_names){
   eval(parse(text = paste0("users$",column,"= users_agg$",column,"[m]")))
 }
 
-save(users, file = paste0(IO$output_data,"users.Rdata"))
-file.copy(from = paste0(IO$output_data,"users.Rdata"), to = paste0(IO$tmp_data,"users_with_agg.Rdata"), overwrite = TRUE)
+write_feather(users, path = paste0(IO$output_data,"users.feather"))
+file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data,"users_with_agg.feather"), overwrite = TRUE)
 
-
-```
-
-```{r data_prep filtering users}
-
-j = which(
-  (users$first_cycle_preg >= 5)&
-    (users$shortest_cycle_before_first_pos_preg > 15) &
-    ((users$n_cycles_after_first_preg >=2) | (users$n_days_obs_after_first_preg >= 20)))
-
-# users
-users = users[j,]
-save(users, file = paste0(IO$output_data,"users.Rdata"))
-file.copy(from = paste0(IO$output_data,"users.Rdata"), to = paste0(IO$tmp_data,"users_filtered.Rdata"), overwrite = TRUE)
-
-# cycles
-cycles = cycles[which(cycles$user_id %in% users$user_id),]
-save(cycles, file = paste0(IO$output_data,"cycles.Rdata"))
-file.copy(from = paste0(IO$output_data,"cycles.Rdata"), to = paste0(IO$tmp_data,"cycles_filtered.Rdata"), overwrite = TRUE)
-
-# days
-days_folder = paste0(IO$output_data,"Days/")
-
-cl = makeCluster(par$n_cores)
-registerDoParallel(cl)
-
-days_files = list.files(days_folder)
-
-days = foreach(file  = days_files, .combine = rbind) %dopar%
-{
-  load(paste0(days_folder,file), verbose = TRUE)
-  colnames(days)
-  dim(days)
-  j = which(days$user_id %in% users$user_id)
-  days = days[j,]
-  return(days)
-}
-
-stopImplicitCluster()
-
-save(days, file = paste0(IO$output_data,"days.Rdata"))
-file.copy(from = paste0(IO$output_data,"days.Rdata"), to = paste0(IO$tmp_data,"days_filtered.Rdata"), overwrite = TRUE)
 
 ```
 
@@ -560,8 +512,8 @@ file.copy(from = paste0(IO$output_data,"days.Rdata"), to = paste0(IO$tmp_data,"d
 
 * aggregate
 
-    + avg, median and sd of cycle_length (cycles without positive pregnancy tests)
-    + avg, median and sd of cycle_length (cycles before first positive pregnancy tests)
++ avg, median and sd of cycle_length (cycles without positive pregnancy tests)
++ avg, median and sd of cycle_length (cycles before first positive pregnancy tests)
 
 ```{r data_prep agg users cycle length stats}
 
@@ -588,8 +540,9 @@ for(column  in column_names){
   eval(parse(text = paste0("users$",column,"= users_agg$",column,"[m]")))
 }
 
-save(users, file = paste0(IO$output_data,"users.Rdata"))
-file.copy(from = paste0(IO$output_data,"users.Rdata"), to = paste0(IO$tmp_data,"users_with_cycle_length_stats.Rdata"), overwrite = TRUE)
+
+write_feather(users, path = paste0(IO$output_data,"users.feather"))
+file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data,"users_with_cycle_length_stats.feather"), overwrite = TRUE)
 
 ```
 

@@ -1,5 +1,5 @@
 ---
-title: "Pregnancy loss"
+title: "Evaluating Pregnancy Outcomes from Digital Self-records"
 author: "Laura Symul"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: 
@@ -25,6 +25,8 @@ source("Scripts/00_setup.R")
 
 ```{r child = '_data_prep.Rmd', cache=TRUE}
 ```
+
+
 
 ```{r child = '_data_presentation.Rmd', cache=TRUE}
 ```

@@ -58,7 +58,6 @@ save(users, file = paste0(IO$output_data, "users.Rdata"))
 
 
 
-
 ## Example of users data
 
 See last section
