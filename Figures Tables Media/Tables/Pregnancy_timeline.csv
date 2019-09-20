@@ -5,5 +5,6 @@ LPL,Late Pregnancy Loss,22
 ExPTB,Extreme Pre-Term Birth,28
 PTB,Pre-Term Birth,37
 TB,Term Birth,43
+TB noBF,Term Birth without Breast Feeding,52
 BF,Breast Feeding,80
 unclear,Unclear,Inf

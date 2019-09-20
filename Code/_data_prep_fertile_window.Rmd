@@ -101,10 +101,11 @@ foreach(file = days_files)%do%{
   j = which(is.na(days$value)) 
   if(length(j)>0){days = days[-j,]}
   # also some of the variables where 0 means no log
-  j = which( ((days$variable == "sex") & (days$value == 0)) |
-               ((days$variable == "first_day") & (days$value == 0)) |
-               ((days$variable == "preg_test") & (days$value == 0)) |
-               ((days$variable == "LH") & (days$value == 0)) 
+  j = which(((days$variable == "bleeding") & (days$value == 0)) |
+              ((days$variable == "sex") & (days$value == 0)) |
+              ((days$variable == "first_day") & (days$value == 0)) |
+              ((days$variable == "preg_test") & (days$value == 0)) |
+              ((days$variable == "LH") & (days$value == 0)) 
   )
   if(length(j)>0){days = days[-j,]}
   
@@ -131,15 +132,15 @@ cycles = read_feather(path = paste0(IO$output_data,"cycles.feather"))
 
 file_obs = paste0(IO$tmp_data,"concatenated_time_series_to_fit_hsmm.feather")
 
-if(!file.exists(file_obs) | FALSE){
+if(!file.exists(file_obs) | TRUE){
   
   input_folder = paste0(IO$output_data,"Days_long/")
-  days_files = sample(list.files(input_folder),10)
+  days_files = sample(list.files(input_folder),2)
   
   obs = foreach(file = days_files, .combine = rbind)%do%{
     cat(file, "\n")
     days = read_feather(paste0(input_folder,file))
-    user_ids = sample(unique(days$user_id), 100)
+    user_ids = sample(unique(days$user_id), 20)
     agg = aggregate(value ~ user_id, days[which((days$variable == "first_day") & (days$user_id  %in% user_ids)),], sum)
     user_ids = agg$user_id[agg$value >= 4]
     
@@ -173,16 +174,66 @@ k = which(full_obs$first_day == 1)
 k = k[1:min(length(k),100)]
 
 obs = full_obs[1:(max(k)-1),]
-obs = full_obs[121:225,]
+obs = full_obs[1:500,]
+obs = full_obs[496:1000,]
+obs = full_obs[1:1000,]
+obs = full_obs[1000:2000,]
+
+
+
 
 obs$gap_num = obs$gap
 obs$gap = 1*(obs$gap_num >= 30)
 
-newdata = list(N  = nrow(obs), x = as.matrix(obs[,match(hsmm$obs_names, colnames(obs))]))
+obs$day = 1:nrow(obs)
+#newdata = list(N  = nrow(obs), x = as.matrix(obs[,match(hsmm$obs_names, colnames(obs))]))
 
+
+load(file = paste0(IO$output_data,"unfitted_bleeding_cycles_model.Rdata"), verbose = TRUE)
+
+tic()
+newdata = list(N  = nrow(obs), x = as.matrix(obs[,"bleeding"]))
+bleeding_cycles_model_f = hsmmfit(x = newdata, model = bleeding_cycles_model, lock.d = TRUE, lock.transition = TRUE, maxit = 1, graphical = FALSE, debug = TRUE)
+toc()
+
+predict_sim_viterbi = predict(object = bleeding_cycles_model_f, newdata = newdata, method = "viterbi")
+predict_sim_smoothed = predict(object = bleeding_cycles_model_f, newdata = newdata, method = "smoothed")
+
+
+predicted_states  = hsmm_b$states$abbr[predict_sim_viterbi$s]
+table(predicted_states)
+data.frame(rle(predicted_states)$values,rle(predicted_states)$lengths )
+
+
+predicted_states  = hsmm_b$states$abbr[predict_sim_smoothed$s]
+table(predicted_states)
+data.frame(rle(predicted_states)$values,rle(predicted_states)$lengths )
+
+obs$predicted_states_b = predicted_states
+
+
+obs_long = melt(as.data.frame(obs), id.vars = c("date","day","predicted_states_b"))
+
+ggplot(obs_long[obs_long$variable %in% c("bleeding","anylog","first_day"),], aes(x = day, y = value))+
+  geom_line()+
+  geom_point(aes(col = predicted_states_b), size = 1)+
+  facet_grid(variable ~ ., scale = "free")
+
+probs = as.data.frame(predict_sim_smoothed$p)
+colnames(probs) = hsmm_b$states$abbr
+probs$day = 1:nrow(probs)
+probs_l = melt(probs, id.vars = "day")
+colnames(probs_l) = c("day","state","p")
+
+ggplot(probs_l, aes(x = day, y= p, col = state))+
+  geom_line()+
+  scale_color_manual(values = hsmm_b$states$colors)
+
+```
+
+```{r}
 
 load(file = paste0(IO$output_data,"unfitted_reprod_cycles_model.Rdata"), verbose = TRUE)
-
 
 tic()
 reprod_cycles_model_f = hsmmfit(x = newdata, model = reprod_cycles_model, lock.d = TRUE, lock.transition = TRUE, maxit = 1, graphical = FALSE, debug = TRUE)
@@ -196,7 +247,7 @@ predict_sim_smoothed = predict(object = reprod_cycles_model_f, newdata = newdata
 predicted_states  = hsmm$states$abbr[predict_sim_viterbi$s]
 table(predicted_states)
 
-obs$day = 1:nrow(obs)
+
 obs$predicted_states = predicted_states
 
 obs_long = melt(as.data.frame(obs), id.vars = c("date","day","predicted_states"))
@@ -222,8 +273,9 @@ colnames(probs_l) = c("day","state","p")
 ggplot(probs_l, aes(x = day, y= p, col = state))+
   geom_line()+
   scale_color_manual(values = hsmm$states$colors)
-
 ```
+
+
 
 
 ```{r checking d (sojourn density)}

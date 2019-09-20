@@ -1,0 +1,518 @@
+---
+title: "FIGURES for 'Evaluating pregnancy outcomes from digital self-records'"
+author: "Laura Symul"
+date: "last update: `r format(Sys.time(), '%d %B, %Y')`"
+
+output: 
+  bookdown::html_document2: 
+    theme: flatly
+    highlight: haddock
+    toc: yes
+    toc_float: true
+    toc_depth: 5
+    number_sections: false
+    fig_caption: true
+---
+
+```{r figures setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+source("Scripts/00_setup.R")
+```
+
+# Table 1
+
+```{r figures table 1}
+
+users = read_feather(path = paste0(IO$output_data, "users.feather"))
+cycles = read_feather(path = paste0(IO$output_data, "cycles.feather"))
+
+type0_users = (users$first_cycle_preg == 0) | (users$n_cycles_after_last_preg == 0) | is.na(users$first_cycle_preg)
+type1_users = !type0_users
+
+
+N = nrow(users)
+U0 =  sum(type0_users, na.rm = TRUE)
+U1 = N-U0
+
+table_1 = data.frame(Attribute = "Number of users", Value = N)
+table_1 = rbind(table_1, data.frame(Attribute = "Total number of cycles", Value = sum(users$n_cycles, na.rm = TRUE)) )
+table_1 = rbind(table_1, data.frame(Attribute = "Number of cycles per users (mean ± sd) ", 
+                                    Value = paste0(round(mean(users$n_cycles, na.rm = TRUE),2)," ± ",
+                                                   round(sd(users$n_cycles, na.rm = TRUE),2)) ))
+
+j = which(users$app_usage_duration_in_years < 10)
+table_1 = rbind(table_1, data.frame(Attribute = "Tracking duration per user [in years] (mean ± sd)", 
+                                    Value = paste0(round(mean(users$app_usage_duration_in_years[j], na.rm = TRUE),2)," ± ",
+                                                   round(sd(users$app_usage_duration_in_years[j], na.rm = TRUE),2)) ))
+
+table_1 = rbind(table_1, data.frame(Attribute = "Total number of positive preg. tests", Value = sum(users$n_pos_preg_tests, na.rm = TRUE)) )
+
+
+table_1 = rbind(table_1, data.frame(Attribute = "Number of type 0 users", Value = U0) )
+
+table_1 = rbind(table_1, data.frame(Attribute = "Perc. of type 0 users", Value = round(100* U0/N) ))
+
+
+table_1 = rbind(table_1, data.frame(Attribute = "Number of type 1 users", Value = U1) )
+
+table_1 = rbind(table_1, data.frame(Attribute = "Perc. of type 1 users", Value = round(100* U1/N) ))
+
+
+table_1 = rbind(table_1, data.frame(Attribute = "Total number of cycles for type 1 users", 
+                                    Value = sum(users$n_cycles[type1_users], na.rm = TRUE)) )
+table_1 = rbind(table_1, data.frame(Attribute = "Number of cycles per type 1 users (mean ± sd) ", 
+                                    Value = paste0(round(mean(users$n_cycles[type1_users], na.rm = TRUE),2)," ± ",
+                                                   round(sd(users$n_cycles[type1_users], na.rm = TRUE),2)) ))
+
+j = which((users$app_usage_duration_in_years < 10) & type1_users)
+table_1 = rbind(table_1, data.frame(Attribute = "Tracking duration per type 1 user [in years] (mean ± sd)", 
+                                    Value = paste0(round(mean(users$app_usage_duration_in_years[j], na.rm = TRUE),2)," ± ",
+                                                   round(sd(users$app_usage_duration_in_years[j], na.rm = TRUE),2)) ))
+
+
+
+
+## Menstrual cycle length - average and median
+
+j = which((cycles$user_id %in% users$user_id[type1_users]) & (cycles$preg_test_class != "pregnant"))
+table_1 = rbind(table_1, data.frame(Attribute = "Average (± sd) menstrual cycle length of type 1 users", 
+                                    Value = paste0(round(mean(cycles$cycle_length[j], na.rm = TRUE),2)," ± ",
+                                                   round(sd(cycles$cycle_length[j], na.rm = TRUE),2)) ))
+
+table_1 = rbind(table_1, data.frame(Attribute = "Median (5 - 95 percentile) menstrual cycle length of type 1 users", 
+                                    Value = paste0(median(cycles$cycle_length[j], na.rm = TRUE)," (",
+                                                   quantile(cycles$cycle_length[j],p = 0.05, na.rm = TRUE), " - ",
+                                                   quantile(cycles$cycle_length[j],p = 0.95, na.rm = TRUE),")") ))
+
+j = which((cycles$user_id %in% users$user_id[type1_users]) & (cycles$preg_test_class == "not pregnant"))
+table_1 = rbind(table_1, data.frame(Attribute = "Number of 'not pregnant' cycles", 
+                                    Value = length(j)))
+
+table_1 = rbind(table_1, data.frame(Attribute = "Median (5 - 95 percentile) menstrual cycle length of type 1 users; cycles with neg. preg. tests only", 
+                                    Value = paste0(median(cycles$cycle_length[j], na.rm = TRUE)," (",
+                                                   quantile(cycles$cycle_length[j],p = 0.05, na.rm = TRUE), " - ",
+                                                   quantile(cycles$cycle_length[j],p = 0.95, na.rm = TRUE),")") ))
+
+
+j = which((cycles$user_id %in% users$user_id[type1_users]) & (cycles$preg_test_class == "not tested"))
+table_1 = rbind(table_1, data.frame(Attribute = "Number of 'not tested' cycles", 
+                                    Value = length(j)))
+table_1 = rbind(table_1, data.frame(Attribute = "Median (5 - 95 percentile) menstrual cycle length of type 1 users; cycles with no reported preg. test", 
+                                    Value = paste0(median(cycles$cycle_length[j], na.rm = TRUE)," (",
+                                                   quantile(cycles$cycle_length[j],p = 0.05, na.rm = TRUE), " - ",
+                                                   quantile(cycles$cycle_length[j],p = 0.95, na.rm = TRUE),")") ))
+
+
+
+j = which(users$is_type_1_user)
+table_1 = rbind(table_1, data.frame(Attribute = "Age of users at first pregnancy (mean ± sd)", 
+                                    Value = paste0(
+                                      round(mean(users$age_at_first_pregnancy[j], na.rm = TRUE),2)," ± ",
+                                      round(sd(users$age_at_first_pregnancy[j], na.rm = TRUE),2))
+                                      ))
+table_1 = rbind(table_1, data.frame(Attribute = "Percentage of users for which the age was available", 
+                                    Value = round(100* sum(!is.na(users$age_at_first_pregnancy[j]))/length(j))))
+
+
+table_1
+
+write.csv(table_1, file = paste0(IO$tables,"dataset_info.csv"))
+
+```
+
+
+
+# Figure 1
+
+```{r figures users examples}
+
+load(paste0(IO$tmp_data,"days_selected_users.Rdata"), verbose = TRUE)
+
+user_ids = unique(days$user_id)
+
+for(user in user_ids){
+  cat("\n",user, "\n")
+  d = days[which((days$user_id == user) & (days$cycle_nb >= 2)),]
+  plot.tracking.history(d = d, show_tests = TRUE, average_temp = FALSE)
+  
+  pdf(file = paste0(IO$panels,"example_",user,".pdf"), width = 9, height = 3.5)
+  plot.tracking.history(d = d, show_tests = TRUE, average_temp = FALSE)
+  dev.off()
+  
+}
+
+```
+
+
+
+```{r}
+
+nrow(users)
+
+sum(is.na(users$n_cycles))
+
+
+table(users$first_cycle_preg)
+table(users$n_cycles_after_last_preg)
+
+table(users$first_cycle_preg == 0, users$n_cycles_after_last_preg==0)
+table(users$first_cycle_preg == 0, users$n_cycles)
+
+
+
+```
+
+
+
+# Figure 2
+
+```{r figures cycle length histogram}
+
+cycles = read_feather(path = paste0(IO$output_data, "cycles.feather"))
+
+lt_weeks = 84
+
+g_hist_lt = ggplot(cycles[cycles$preg_test_class == "pregnant",], 
+                   aes(x = cycle_length, fill = preg_test_class)) + 
+  geom_vline(xintercept = dict$pregnancy_timeline$duration_in_days[dict$pregnancy_timeline$duration_in_weeks <= lt_weeks], 
+             col = "gray", linetype = 2)+
+  geom_histogram(aes(y = ..density..), binwidth = 7, position = "identity", alpha = 0.5)+
+  scale_x_continuous(breaks = viz$xaxis_m*28, minor_breaks = viz$xaxis_s*7,  
+                     labels = viz$xaxis_m*4, limits = c(0,lt_weeks*7), expand = c(0,0))+
+  ylab("% of cycles")+ xlab("pregnancy duration (in weeks)")+ # ylab("% of cycles")
+  scale_fill_manual(name = "Cycle label", values = c("royalblue1"))+ 
+  theme(legend.position = "bottom")+
+  guides(fill = FALSE)
+#g_hist_lt
+
+
+st_weeks = 10
+
+g_hist_st = ggplot(cycles[cycles$preg_test_class != "pregnant",], aes(x = cycle_length, fill = preg_test_class, group = preg_test_class)) +   
+  geom_vline(xintercept = dict$pregnancy_timeline$duration_in_days[dict$pregnancy_timeline$duration_in_weeks <= st_weeks], 
+             col = "gray", linetype = 2)+
+  geom_histogram(aes(y = ..density.. ), binwidth = 1, position = "identity", alpha = 0.5)+
+  scale_x_continuous(breaks = viz$xaxis_m*28, minor_breaks = viz$xaxis_s*7,  
+                     labels = viz$xaxis_m*4, limits = c(0,st_weeks*7), expand = c(0,0))+
+  ylab("density")+ xlab("cycle duration (in weeks)")+ # ylab("% of cycles")
+  scale_fill_manual(name = "Cycle label",values = c("tomato","lightgoldenrod4","royalblue1"))+ 
+  theme(legend.position = "right")
+#facet_grid(preg_test_class ~ .)
+#g_hist_st
+
+
+g_inset = ggplotGrob(g_hist_st +
+                       theme(plot.background = element_rect(colour = "gray40")))
+
+
+g = g_hist_lt + annotation_custom(
+  grob = g_inset,
+  xmin = 18*7,
+  xmax = Inf,
+  ymin = 0.005,
+  ymax = Inf
+)
+
+g
+
+ggsave(filename = paste0(IO$panels, "cycle or pregnancy duration.pdf"), g, width = 7, height = 5)
+
+```
+
+
+
+```{r figures pregnancy outcomes}
+
+cycles = read_feather(path = paste0(IO$output_data, "cycles.feather"))
+
+
+j = which(cycles$preg_test_class == "pregnant")
+
+agg_preg_outcomes = aggregate(cycle_id ~ preg_outcome + preg_outcome_cat, cycles[j,], lu) %>% 
+  set_colnames(c("preg_outcome","preg_outcome_cat","n_cycles"))  %>%
+  mutate(perc_cycles = n_cycles/sum(n_cycles))
+
+agg_preg_outcomes_max = aggregate(perc_cycles ~ preg_outcome, agg_preg_outcomes, sum )
+
+g = ggplot() + 
+  geom_bar(data = agg_preg_outcomes, 
+           aes(x = preg_outcome, y = perc_cycles, fill = preg_outcome_cat), stat = "identity")+
+  geom_text(data = agg_preg_outcomes_max, 
+            aes(x = preg_outcome, 
+                y = perc_cycles, 
+                label = paste0(round(100*perc_cycles),"%"), 
+                col = preg_outcome), 
+            fill = NULL, vjust = -0.5)+
+  xlab("Pregnancy outcome")+ ylab("% cycles")+
+  scale_fill_manual(values = dict$pregnancy_outcomes$colors)+
+  scale_color_manual(values = dict$pregnancy_timeline$colors[-which(dict$pregnancy_timeline$abbreviation == "TB noBF")])+
+  scale_y_continuous(labels=percent)+
+  guides(fill = FALSE, col = FALSE)
+
+g
+
+
+ggsave(filename = paste0(IO$panels, "pregnancy outcomes.pdf"), g, width = 5, height = 5)
+
+table(cycles$preg_outcome[j])
+x = round(table(cycles$preg_outcome[j])/sum(table(cycles$preg_outcome[j])) * 100 ,2)
+x
+
+```
+
+# Table 3
+
+```{r figures outcomes table}
+
+
+j = which(users$is_type_1_user)
+length(j)
+u = users[j,]
+table(u$n_LB, u$n_PL)
+table(u$n_LB)
+table(u$n_PL)
+
+
+j = which((u$n_LB + u$n_PL)>0)
+#table(u$n_LB[j], u$n_PL[j])
+table(u$n_LB[j])
+round(table(u$n_LB[j])/sum(table(u$n_LB[j])) * 100, 2)
+
+table(u$n_PL[j])
+round(table(u$n_PL[j])/sum(table(u$n_PL[j])) * 100, 2)
+
+length(j)
+
+
+sum(u$n_PL[j])/sum(u$app_usage_duration_in_years[j])
+sum(u$n_PL[j])/length(j)
+
+```
+
+
+
+
+
+# Figure 3
+
+
+```{r figures live birth and PL rate}
+
+
+users$LB_rate = users$n_LB/users$app_usage_duration_in_years
+
+hist(users$LB_rate)
+
+users$PL_rate = users$n_PL/users$app_usage_duration_in_years
+hist(users$PL_rate)
+
+
+g_live_births_rate = ggplot(users[j,], aes(x = LB_rate))+
+  geom_histogram(aes(y = ..count../sum(..count..)),binwidth = 1/20, fill = "seagreen3")+
+  ylab("% of users")+xlab("# of live births / app usage duration in years")+
+  scale_y_continuous(breaks = seq(0,1,1/10), labels = percent)+
+  scale_x_continuous(limits = c(-0.15,2.15))
+g_live_births_rate
+
+g_PL_rate = ggplot(users[j,], aes(x = PL_rate))+
+  geom_histogram(aes(y = ..count../sum(..count..)),binwidth = 1/20, fill = "orange")+
+  ylab("% of users")+xlab("# of pregnancy loss / app usage duration in years")+
+  scale_y_continuous(breaks = seq(0,1,1/10), labels = percent)+
+  scale_x_continuous(limits = c(-0.15,2.15))
+g_PL_rate
+
+
+g = grid.arrange(g_live_births_rate, g_PL_rate)
+
+
+
+ggsave(filename = paste0(IO$panels, "live birth and PL rate.pdf"), g, width = 5, height = 5)
+
+
+```
+
+# Duration of using the app for users with PL or LB
+
+```{r}
+
+never_had_PL = (users$is_type_1_user) & (users$n_PL == 0) & (users$n_LB > 0)
+had_PL = (users$is_type_1_user) & (users$n_PL > 0)
+
+users$had_PL = NA
+users$had_PL[had_PL] = TRUE
+users$had_PL[never_had_PL] = FALSE
+
+ggplot(users[!is.na(users$had_PL),], aes(x = n_cycles_after_last_preg, fill = had_PL))+
+  geom_histogram(position = "identity",binwidth = 1, alpha = 0.5)
+
+aggregate(n_cycles_after_last_preg ~ had_PL, users, mean )
+aggregate(n_cycles_after_last_preg ~ had_PL, users, median )
+
+
+```
+
+
+
+
+
+# Figure 4
+
+
+
+```{r figures pregnancy loss predictors}
+
+users = read_feather(path = paste0(IO$output_data,"users.feather"))
+
+users$any_PL = ifelse(users$n_PL>0, "Yes", ifelse(users$n_LB>0,"No",NA))
+
+
+u = users[which(!is.na(users$first_preg_outcome_simple)),]
+u$is_first_preg_a_PL = (u$first_preg_outcome_simple == "PL")
+
+
+glm_cl = glm(
+  is_first_preg_a_PL ~ 
+    sd_cycle_length_4+
+    median_cycle_length_4+
+    time_to_first_pos_test +
+    age_at_first_pregnancy,
+  data = u,
+  family = "binomial")
+
+summary(glm_cl)
+
+
+u$is_first_preg_a_PL = ifelse(u$is_first_preg_a_PL,"Yes","No")
+
+
+g = ggplot(u, aes(x = median_cycle_length_4, fill = is_first_preg_a_PL))+
+  geom_histogram(aes(y = ..density..), col = NA, alpha = 0.3, position = "identity", binwidth = 1)+
+  scale_x_continuous(breaks = viz$xaxis_j, limits = c(14,70))+
+  scale_fill_manual(name = "Does 1st pregnancy end up in a preg. loss?", values = c("blue","red"))+
+  xlab("median cycle length before first positive preg. test")+
+  theme(legend.position = "top")
+
+g
+
+ggsave(filename = paste0(IO$panels, "median_cycle_length_before_first_preg.pdf"), g, width = 5, height = 5)
+
+
+
+g = ggplot(u, aes(x = sd_cycle_length_4, fill = is_first_preg_a_PL))+
+  geom_histogram(aes(y = ..density..), col = NA, alpha = 0.3, position = "identity", binwidth = 0.5)+
+  scale_x_continuous(breaks = viz$xaxis_j, limits = c(0,42))+
+  scale_fill_manual(name = "Does 1st pregnancy end up in a preg. loss?", values = c("blue","red"))+
+  xlab("standard deviation in cycle length before 1st pos. preg. test")+
+  theme(legend.position = "top")
+g
+
+ggsave(filename = paste0(IO$panels, "sd_cycle_length_before_first_preg.pdf"), g, width = 5, height = 5)
+
+
+
+g = ggplot(u, aes(x = log10(sd_cycle_length_4), fill = is_first_preg_a_PL))+
+  geom_histogram(aes(y = ..density..), col = NA, alpha = 0.3, position = "identity", binwidth = 0.1)+
+  #scale_x_continuous(breaks = log10(viz$xaxis_j))+ # , limits = c(0,42)
+  scale_fill_manual(name = "Does 1st pregnancy end up in a preg. loss?", values = c("blue","red"))+
+  xlab("standard deviation (log10) in cycle length before 1st pos. preg. test")+
+  theme(legend.position = "top")
+g
+
+ggsave(filename = paste0(IO$panels, "log10_sd_cycle_length_before_first_preg.pdf"), g, width = 5, height = 5)
+
+
+
+qqplot(x=  u$median_cycle_length_4[which(u$is_first_preg_a_PL == "Yes")], 
+       y = u$median_cycle_length_4[which(u$is_first_preg_a_PL == "No")], 
+       pch = 16, cex = 0.5, col = rgb(0,0,0,0.3),
+       xlim = c(0,50), ylim = c(0,50))
+abline(a = 0, b = 1)
+
+
+
+qqplot(x=  u$sd_cycle_length_4[which(u$is_first_preg_a_PL == "Yes")], 
+       y = u$sd_cycle_length_4[which(u$is_first_preg_a_PL == "No")], 
+       pch = 16, cex = 0.5, col = rgb(0,0,0,0.3),
+       xlim = c(0,42), ylim = c(0,42),
+       main = "cycle length variability",
+       xlab = "1st preg. ends up in a PL", ylab = "1st preg. ends up in a LB")
+abline(a = 0, b = 1)
+
+
+
+
+
+g = ggplot(u, aes(x = first_cycle_preg-1, fill = is_first_preg_a_PL))+
+  geom_histogram(aes(y = ..density..), col = NA, alpha = 0.3, position = "identity", binwidth = 1)+
+  scale_fill_manual(name = "Does 1st pregnancy end up in a preg. loss?", values = c("blue","red"))+
+  xlab("# of cycles before getting pregnant")+
+  theme(legend.position = "top")
+g
+
+ggsave(filename = paste0(IO$panels, "number_of_cycles_before_first_preg.pdf"), g, width = 5, height = 5)
+
+
+
+qqplot(x=  u$first_cycle_preg[which(u$is_first_preg_a_PL == "Yes")], 
+       y = u$first_cycle_preg[which(u$is_first_preg_a_PL == "No")], 
+       pch = 16, cex = 0.5, col = rgb(0,0,0,0.3),
+       xlim = c(0,80), ylim = c(0,80),
+       main = "# of cycles before getting pregnant",
+       xlab = "1st preg. ends up in a PL", ylab = "1st preg. ends up in a LB")
+abline(a = 0, b = 1)
+
+
+
+
+
+g = ggplot(u, aes(x = time_to_first_pos_test, fill = is_first_preg_a_PL))+
+  geom_histogram(aes(y = ..density..), col = NA, alpha = 0.3, position = "identity", binwidth = 1/12)+
+  scale_fill_manual(name = "Does 1st pregnancy end up in a preg. loss?", values = c("blue","red"))+
+  xlab("# of years before 1st positive preg. test")+ xlim(0,5)+
+  theme(legend.position = "top")
+g
+
+ggsave(filename = paste0(IO$panels, "time_before_first_preg.pdf"), g, width = 5, height = 5)
+
+
+qqplot(x=  u$time_to_first_pos_test[which(u$is_first_preg_a_PL == "Yes")], 
+       y = u$time_to_first_pos_test[which(u$is_first_preg_a_PL == "No")], 
+       pch = 16, cex = 0.5, col = rgb(0,0,0,0.3),
+       xlim = c(0,5), ylim = c(0,5),
+       main = "time before getting pregnant",
+       xlab = "1st preg. ends up in a PL", ylab = "1st preg. ends up in a LB")
+abline(a = 0, b = 1)
+
+ddply(u,
+      c("is_first_preg_a_PL"),
+      summarize,
+      mean_time_before_first_pos_test = mean(time_to_first_pos_test, na.rm = TRUE),
+      median_time_before_first_pos_test = median(time_to_first_pos_test, na.rm = TRUE))
+
+
+
+
+g = ggplot(u, aes(x = age_at_first_pregnancy, fill = is_first_preg_a_PL))+
+  geom_histogram(aes(y = ..density..), col = NA, alpha = 0.3, position = "identity", binwidth = 1)+
+  scale_fill_manual(name = "Does 1st pregnancy end up in a preg. loss?", values = c("blue","red"))+
+  xlab("age of users")+
+  theme(legend.position = "top")
+g
+
+ggsave(filename = paste0(IO$panels, "age_of_users.pdf"), g, width = 5, height = 5)
+
+
+qqplot(x=  u$age_at_first_pregnancy[which(u$is_first_preg_a_PL == "Yes")], 
+       y = u$age_at_first_pregnancy[which(u$is_first_preg_a_PL == "No")], 
+       pch = 16, cex = 0.5, col = rgb(0,0,0,0.3),
+       xlim = c(15,55), ylim = c(15,55),
+       main = "age of users",
+       xlab = "1st preg. ends up in a PL", ylab = "1st preg. ends up in a LB")
+abline(a = 0, b = 1)
+
+
+```
+
+
+
+

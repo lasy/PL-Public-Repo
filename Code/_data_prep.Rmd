@@ -43,33 +43,65 @@ tic()
 cl = makeCluster(par$n_cores, outfile="")
 registerDoParallel(cl)
 
-users = foreach(file = files, .combine = c, .packages = "feather") %dopar%{
+users = foreach(file = files, .combine = rbind, .packages = c("feather","readr","plyr","dplyr")) %dopar%{
   
-  days = read.csv(paste0(input_folder,file), stringsAsFactors = FALSE) 
+  #days = read.csv(paste0(input_folder,file), stringsAsFactors = FALSE) 
+  days = read_tsv(file = paste0(input_folder,file),
+                  col_types = cols(
+                    id = col_character(),
+                    date = col_date(format = "%Y-%m-%d %H:%M:%S"),
+                    first_day = col_logical(),
+                    conception = col_logical(),
+                    temperature = col_double(),
+                    temp_time = col_datetime(format = ""),
+                    temp_source = col_integer(),
+                    questionable_temp = col_logical(),
+                    no_fluid = col_logical(),
+                    fluid_sticky = col_integer(),
+                    fluid_creamy = col_integer(),
+                    fluid_eggwhite = col_integer(),
+                    fluid_watery = col_integer(),
+                    cervix_height = col_integer(),
+                    cervix_openness = col_integer(),
+                    cervix_firmness = col_integer(),
+                    opk = col_integer(),
+                    preg_test = col_integer(),
+                    ferning = col_skip(),
+                    prg_test = col_skip(),
+                    menstruation = col_integer(), 
+                    spotting = col_logical(),
+                    sex = col_integer(),
+                    vaginal_sensation = col_skip(), #col_integer(),
+                    custom = col_character(),
+                    moods = col_character(),
+                    symptoms = col_character()
+                  ))
   
   # colnames
-  colnames(days)[colnames(days) == "account"] = "user_id"
+  colnames(days)[colnames(days) == "id"] = "user_id"
   
   # identifying
   users_with_pos_preg_tests = unique(days$user_id[which(days$preg_test == 1)])
+  users = data.frame(user_id = users_with_pos_preg_tests, kindara_csv_file = file)
   
-  # formating
-  days$date = as.Date(days$date)
-  # transforming first_day into a logical
-  days$first_day_o = days$first_day
-  days$first_day = ifelse(days$first_day == "True", TRUE, FALSE)
+  # formating pregnancy tests
+  days = mutate(days,
+                preg_test_o = preg_test,
+                preg_test = ifelse(preg_test == 2, -1, preg_test))
+  
+  
   
   new_file_name = gsub("csv","feather",file)
   write_feather(days, path = paste0(output_folder,new_file_name))
   #save(days, file = paste0(output_folder,new_file_name))
   
-  return(users_with_pos_preg_tests)
+  return(users)
 }
 
 stopImplicitCluster()
 toc()
 
-save(users, file = paste0(IO$tmp_data, "full_list_users_with_pos_preg_tests.Rdata"))
+write_feather(users, path = paste0(IO$tmp_data, "full_list_users_with_pos_preg_tests.feather"))
 
 ```
 
@@ -79,13 +111,18 @@ Create a user table from the list of users that ever logged a positive pregnancy
 
 ```{r data_prep create user tables and batches}
 
-users_df = data.frame(user_id = as.character(unique(users)), pos_preg_test = TRUE, stringsAsFactors = FALSE)
-users = users_df[order(users_df$user_id),]
-rm(users_df)
+#users = read_feather(path = paste0(IO$tmp_data, "full_list_users_with_pos_preg_tests.feather"))
 
-batch_size = min(par$max_batch_size, ceiling(nrow(users)/par$min_n_batches))
-n_batches = ceiling(nrow(users)/batch_size)
-users$batch = rep(1:n_batches, each = batch_size)[1:nrow(users)]
+users$batch = as.numeric(users$kindara_csv_file)
+
+users_agg = ddply(users,
+                  "user_id",
+                  summarise,
+                  kindara_csv_file = paste0(kindara_csv_file, collapse = ","),
+                  batch = min(batch))
+
+users = users_agg
+users$pos_preg_test = TRUE
 
 write_feather(users, path = paste0(IO$output_data, "users.feather"))
 ok = file.copy(from = paste0(IO$output_data, "users.feather"), to = paste0(IO$tmp_data, "users_with_pos_preg_tests.feather"), overwrite = TRUE)
@@ -170,13 +207,62 @@ save(input_files, file = paste0(IO$tmp_data, "input_files.Rdata"))
 
 ```
 
-```{r data_prep save the original input files reference into users table}
 
-input_files = aggregate(input_file_id ~ user_id, input_files, function(x){paste0(unique(sort(x)),collapse = "|")})
-users$input_files = input_files$input_file_id[match(users$user_id, input_files$user_id)]
 
-write_feather(users, path = paste0(IO$output_data,"users.feather"))
-file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data,"users_with_original_file_id.feather"), overwrite = TRUE)
+## Identify cycles (and pregnancies)
+
+```{r identify cycles}
+
+input_folder = paste0(IO$tmp_data,"Days_filtered/")
+output_folder = paste0(IO$output_data,"Days/")
+tmp_folder = paste0(IO$tmp_data, "Days_filtered_with_cycles/")
+if(dir.exists(input_folder)){unlink(output_folder, recursive = TRUE);dir.create(output_folder)}
+if(!dir.exists(tmp_folder)){dir.create(tmp_folder)}
+
+files = list.files(input_folder)
+
+
+cl = makeCluster(par$n_cores)
+registerDoParallel(cl)
+
+foreach(file = files, .packages = c("feather","zoo","plyr","dplyr","tictoc","foreach")) %dopar%{
+  
+  days = read_feather(path = paste0(input_folder,file))
+  o = order(days$user_id, days$date)
+  days = days[o,]
+  days$is_first_day = FALSE
+  days = mutate(days,
+                day_id = paste0(user_id, "_",date))
+  
+  user_ids = unique(days$user_id)
+  tic()
+  day_ids = foreach(user_id  = user_ids, .combine = c)%do%{
+    this_user_day = days[which((days$user_id == user_id)),]
+    this_user_day$day = as.numeric(this_user_day$date - min(this_user_day$date))
+    
+    
+    cycle_starts = find_cycle_starts(this_user_day = this_user_day, debug = FALSE)
+    
+    # cycle_starts
+    # this_user_day$day[this_user_day$first_day]
+    
+    # plot.tracking.history(d = this_user_day, show_tests = TRUE)
+    # abline(v = this_user_day$date[this_user_day$first_day],  col = "green")
+    # abline(v = this_user_day$date[match(cycle_starts,this_user_day$day)], lty = 3, col = "red")
+    
+    day_ids = this_user_day$day_id[this_user_day$day %in% cycle_starts]
+    
+    return(day_ids)
+  }
+  toc()
+  
+  days$is_first_day[days$day_id %in% day_ids] = TRUE
+  
+  write_feather(days, path = paste0(output_folder,file))
+  file.copy(from = paste0(output_folder,file), to = paste0(tmp_folder,file), overwrite = TRUE)
+}
+
+stopImplicitCluster()
 
 ```
 
@@ -185,40 +271,19 @@ file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data
 
 ## Create a cycles table
 
-Note: we cannot use the cycles table that Kindara provided because the account ids are not linked between the 3 tables.
-
-```{r data_prep checking cycles table, eval = FALSE}
-
-# load(paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
-
-cycles_input_folder = paste0(IO$input_data,"Cycles/")
-cycles_files = list.files(cycles_input_folder)
-
-cycles = foreach(file  = cycles_files) %dopar%
-{
-  file  = cycles_files[3]
-  cycles = read.csv(paste0(cycles_input_folder,file), stringsAsFactors = FALSE)
-  dim(cycles)
-  colnames(cycles)
-  cycles$user_id = cycles$account
-  j = which(cycles$user_id %in% users$user_id)
-  length(j)
-  return(cycles[j,])
-}
-
-dim(cycles)
-
-```
-
-We thus need to create the cycles from the days table by looking at which days have the flag `first_day`.
+We cannot use the cycles table that Kindara provided because we re-defined the cycles.
+We thus create the cycles from the days table by looking at which days have the flag `is_first_day`.
 
 
 ```{r data_prep create cycle table, eval = TRUE}
 
-# load(paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
+#users = read_feather(paste0(IO$output_data,"users.feather"))
 
 days_input_folder = paste0(IO$output_data,"Days/")
 days_files = list.files(days_input_folder)
+
+cl = makeCluster(par$n_cores)
+registerDoParallel(cl)
 
 cycles = foreach(file  = days_files, .combine = rbind, .packages = "feather") %dopar%
 {
@@ -227,7 +292,7 @@ cycles = foreach(file  = days_files, .combine = rbind, .packages = "feather") %d
   dim(days)
   
   # creating the cycles table
-  cycles = days[days$first_day, c("user_id","date")]
+  cycles = days[days$is_first_day, c("user_id","date")]
   colnames(cycles)[which(colnames(cycles) == "date")] = "start_date"
   cycles = cycles[order(cycles$user_id, cycles$start_date),]  
   
@@ -237,6 +302,9 @@ cycles = foreach(file  = days_files, .combine = rbind, .packages = "feather") %d
   
   return(cycles)
 }
+
+
+stopImplicitCluster()
 
 dim(cycles)
 
@@ -316,10 +384,10 @@ stopImplicitCluster()
 
 ```
 
+
 ## Aggregated cycles variable
 
 Now we can aggregate the days table to report useful information on the cycles table
-
 
 * aggregate to create the cycles table
 
@@ -342,8 +410,6 @@ Now we can aggregate the days table to report useful information on the cycles t
 + n_withdrawal  --v
 + n_insemination  --v
 + n_BBT  --v
-
-
 
 
 
@@ -445,9 +511,7 @@ file.copy(from = paste0(IO$output_data,"cycles.feather"), to = paste0(IO$tmp_dat
 
 
 
-
 ## Augmenting the user table
-
 
 - with number of cycles before first positive pregnancy test
 - with number of cycles after last positive pregnancy test
@@ -466,7 +530,7 @@ users_agg = suppressWarnings(
         n_pos_cycles = sum(n_pos_preg_test > 0, na.rm = TRUE),
         first_cycle_preg = min(cycle_nb[n_pos_preg_test > 0], na.rm = TRUE),
         last_cycle_preg = max(cycle_nb[n_pos_preg_test > 0], na.rm = TRUE)
-        )
+  )
 )
 
 users_agg$first_cycle_preg[is.infinite(users_agg$first_cycle_preg)] =  0
@@ -547,11 +611,86 @@ file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data
 ```
 
 
+```{r users first and last observation}
+
+input_days_folder = paste0(IO$output_data,"Days/")
+
+cl = makeCluster(par$n_cores)
+registerDoParallel(cl)
+
+days_files = list.files(input_days_folder)
+
+users_agg = foreach(file  = days_files, .combine = rbind, .packages = c('plyr','dplyr','feather')) %dopar%
+{
+  days = read_feather(path = paste0(input_days_folder,file))
+  
+  users_agg = ddply(days, 
+                    .(user_id), 
+                    .parallel = TRUE,  # FALSE,  # TRUE
+                    .fun = summarize,
+                    n_pos_preg_tests = sum(preg_test == 1),
+                    earliest_date = min(date, na.rm = TRUE),
+                    latest_date = max(date, na.rm = TRUE))
+  return(users_agg)
+  
+}
+
+stopImplicitCluster()
+
+write_feather(users_agg, path = paste0(IO$tmp_data, "users_agg_earliest_and_latest_dates.feather"))
+```
 
 
+```{r adding earliest and latest dates to the user table}
+
+column_names = colnames(users_agg)
+column_names = column_names[-which(column_names %in% colnames(users))]
+m = match(users$user_id, users_agg$user_id)
+for(column  in column_names){
+  eval(parse(text = paste0("users$",column,"= users_agg$",column,"[m]")))
+}
+
+users$app_usage_duration_in_days = as.numeric(users$latest_date - users$earliest_date) 
+users$app_usage_duration_in_years = users$app_usage_duration_in_days/365
+
+write_feather(users, path = paste0(IO$output_data,"users.feather"))
+file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data,"users_with_earliest_and_latest_date.feather"), overwrite = TRUE)
+
+```
 
 
+## Add the age on the users table
+
+```{r add the age to the users table}
+
+accounts = read_tsv(paste0(IO$input_data,"accounts.csv"))
+accounts$birth_year = year(accounts$birth_day)
+users$birth_year = accounts$birth_year[match(users$user_id, accounts$id)]
+users$age_now = year(today()) - users$birth_year
+users$age_now[(users$age_now<15)|(users$age_now>55)] = NA
+
+write_feather(users, path = paste0(IO$output_data,"users.feather"))
+file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data,"users_with_age.feather"), overwrite = TRUE)
 
 
+```
+
+```{r add the age to the cycles table}
+
+cycles$birth_year = users$birth_year[match(cycles$user_id, users$user_id)]
+cycles$current_age = year(cycles$start_date) - cycles$birth_year
+cycles$current_age[(cycles$current_age<15)|(cycles$current_age>55)] = NA
+
+users$age_at_first_pregnancy = cycles$current_age[match(paste0(users$user_id, "_",users$first_cycle_preg),cycles$cycle_id)]
+  
+  
+write_feather(users, path = paste0(IO$output_data,"users.feather"))
+file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data,"users_with_age_at_first_pregnancy.feather"), overwrite = TRUE)
+
+write_feather(cycles, path = paste0(IO$output_data,"cycles.feather"))
+file.copy(from = paste0(IO$output_data,"cycles.feather"), to = paste0(IO$tmp_data,"cycles_with_age.feather"), overwrite = TRUE)
+
+
+```
 
 

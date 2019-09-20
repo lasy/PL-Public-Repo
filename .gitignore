@@ -3,6 +3,7 @@
 *_cache_*/
 *_files/
 *_files_*/
+*code_old/
 
 *_cache/html/*
 *_cache_*/html/*
@@ -13,3 +14,5 @@
 #ignore big files
 *.html
 
+Code/.Rhistory
+Code/.DS_Store

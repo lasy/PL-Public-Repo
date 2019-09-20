@@ -28,7 +28,8 @@ source("Scripts/00_setup.R")
 
 ```{r preg_loss_pred stats for the 4 cycles before 1st pregnancy}
 
-load(paste0(IO$output_data, "cycles.Rdata"), verbose = TRUE)
+users = read_feather(path = paste0(IO$output_data, "users.feather"))
+cycles = read_feather(path = paste0(IO$output_data, "cycles.feather"))
 
 
 colnames(cycles)
@@ -36,6 +37,7 @@ cycles$cycle_nb_first_pos_preg_test = users$first_cycle_preg[match(cycles$user_i
 cycles$cycles_before_preg_4 = (cycles$cycle_nb >= (cycles$cycle_nb_first_pos_preg_test - 4)) & 
   (cycles$cycle_nb <= (cycles$cycle_nb_first_pos_preg_test - 1))
 
+cycles$cycles_before_preg_4[cycles$cycle_nb_first_pos_preg_test < 5] = FALSE
 
 users_cycles_stats = ddply(cycles[which(cycles$cycles_before_preg_4),], 
                             .(user_id), 
@@ -63,7 +65,7 @@ users_first_preg_outcome = cycles[which(cycles$cycle_nb == cycles$cycle_nb_first
 
 users$first_preg_outcome = users_first_preg_outcome$preg_outcome[match(users$user_id, users_first_preg_outcome$user_id)]
 
-users$first_preg_outcome_simple = ifelse(users$first_preg_outcome %in% c("TB","BF","ExPTB","PTB"), "LB",
+users$first_preg_outcome_simple = ifelse(users$first_preg_outcome %in% c("TB noBF","BF","PTB"), "LB", #"ExPTB",
                                          ifelse(users$first_preg_outcome %in% c("EPL","LPL"),"PL",NA))
 
 # and the time to first pregnancy test
@@ -77,8 +79,8 @@ users$time_to_first_pos_test = users$time_to_first_pos_test_in_days /365
 
 
 #
-save(users, file = paste0(IO$output_data,"users.Rdata"))
-file.copy(from = paste0(IO$output_data,"users.Rdata"), to = paste0(IO$tmp_data,"users_with_stats_4_cycles.Rdata"), overwrite = TRUE)
+write_feather(users, path = paste0(IO$output_data,"users.feather"))
+file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data,"users_with_stats_4_cycles.feather"), overwrite = TRUE)
 
 ```
 
@@ -94,7 +96,6 @@ file.copy(from = paste0(IO$output_data,"users.Rdata"), to = paste0(IO$tmp_data,"
 
 ```{r preg_loss_pred cycle length}
 
-load(file = paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
 
 users$any_PL = ifelse(users$n_PL>0, TRUE, ifelse(users$n_LB>0,FALSE,NA))
 
@@ -104,7 +105,8 @@ u = users[which(!is.na(users$any_PL)),]
 glm_cl = glm(
   any_PL ~ cycle_length_before_preg_avg + 
     cycle_length_before_preg_median + 
-    cycle_length_before_preg_sd,
+    cycle_length_before_preg_sd +
+    age_now,
   data = u,
   family = "binomial")
 summary(glm_cl)

@@ -12,7 +12,9 @@ package_list = c('knitr','bookdown','styler',
                  'tictoc',
                  'feather',
                  'igraph',
-                 'mhsmm'
+                 'mhsmm',
+                 'imputeTS',
+                 'zoo'
                  
                  #'biwavelet'
                  #'klaR', 'cluster',

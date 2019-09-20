@@ -11,6 +11,151 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 
+```{r figures cycle lengths predictor - old}
+
+load(file = paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
+
+users$any_PL = ifelse(users$n_PL>0, "Yes", ifelse(users$n_LB>0,"No",NA))
+
+u = users[which(!is.na(users$any_PL)),]
+
+
+g = ggplot(u, aes(x = cycle_length_before_preg_median, fill = any_PL))+
+  geom_histogram(aes(y = ..density..), col = NA, alpha = 0.5, position = "identity", binwidth = 1)+
+  scale_x_continuous(breaks = viz$xaxis_j, limits = c(14,70))+
+  scale_fill_manual(name = "experienced any preg. loss", values = c("blue","red"))+
+  xlab("median cycle length before first positive preg. test")+
+  theme(legend.position = "top")
+
+g
+
+
+ggsave(filename = paste0(IO$panels, "median_cycle_length_before_first_preg.pdf"), g, width = 5, height = 5)
+
+
+
+
+g = ggplot(u, aes(x = cycle_length_before_preg_sd, fill = any_PL))+
+  geom_histogram(aes(y = ..density..), col = NA, alpha = 0.5, position = "identity", binwidth = 0.5)+
+  scale_x_continuous(breaks = viz$xaxis_j, limits = c(0,42))+
+  scale_fill_manual(name = "experienced any preg. loss", values = c("blue","red"))+
+  xlab("standard deviation in cycle length before 1st pos. preg. test")+
+  theme(legend.position = "top")
+g
+
+ggsave(filename = paste0(IO$panels, "sd_cycle_length_before_first_preg.pdf"), g, width = 5, height = 5)
+
+
+
+
+qqplot(x=  u$cycle_length_before_preg_sd[which(u$any_PL == "Yes")], 
+       y = u$cycle_length_before_preg_sd[which(u$any_PL == "No")], 
+       pch = 16, cex = 0.5, col = rgb(0,0,0,0.3),
+       xlim = c(0,50), ylim = c(0,50))
+abline(a = 0, b = 1)
+
+
+
+qqplot(x=  u$cycle_length_before_preg_median[which(u$any_PL == "Yes")], 
+       y = u$cycle_length_before_preg_median[which(u$any_PL == "No")], 
+       pch = 16, cex = 0.5, col = rgb(0,0,0,0.3),
+       xlim = c(0,91), ylim = c(0,91))
+abline(a = 0, b = 1)
+
+
+```
+
+```{r data_prep save the original input files reference into users table}
+
+input_files = aggregate(input_file_id ~ user_id, input_files, function(x){paste0(unique(sort(x)),collapse = "|")})
+users$input_files = input_files$input_file_id[match(users$user_id, input_files$user_id)]
+
+write_feather(users, path = paste0(IO$output_data,"users.feather"))
+file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data,"users_with_original_file_id.feather"), overwrite = TRUE)
+
+```
+
+
+```{r data_prep checking cycles table, eval = FALSE}
+
+# load(paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
+
+cycles_input_folder = paste0(IO$input_data,"Cycles/")
+cycles_files = list.files(cycles_input_folder)
+
+cycles = foreach(file  = cycles_files) %dopar%
+{
+  file  = cycles_files[3]
+  cycles = read.csv(paste0(cycles_input_folder,file), stringsAsFactors = FALSE)
+  dim(cycles)
+  colnames(cycles)
+  cycles$user_id = cycles$account
+  j = which(cycles$user_id %in% users$user_id)
+  length(j)
+  return(cycles[j,])
+}
+
+dim(cycles)
+
+```
+
+
+
+
+
+
+```{r}
+
+    
+    this_user_day = days[which((days$user_id == user_id) & (days$menstruation > 0)),]
+    date_last_bleeding = this_user_day$date[1] - 10
+    time_between_bleeding = as.numeric(diff(c(date_last_bleeding, this_user_day$date)))
+    this_user_day$menstruation_next_day = this_user_day$menstruation[match(this_user_day$date, (this_user_day$date-1))]
+    this_user_day$menstruation_next_day[is.na(this_user_day$menstruation_next_day)] = 0
+    sum_bleeding_2_days = this_user_day$menstruation + this_user_day$menstruation_next_day
+    this_user_day$cycle_start_l = (time_between_bleeding > 7) & (sum_bleeding_2_days >= 2)
+    days$is_first_day[match(this_user_day$day_id[which(this_user_day$cycle_start_l)],days$day_id)] = TRUE
+```
+
+
+
+## Identifying pregnancy starts and ends
+
+### Pregnancy start
+
+If a positive pregnancy test is logged early in a cycle, it probably reflects a conception which happened at the previous cycle. The current cycle thus needs to be merged with the previous cycle and the merged cycle is labeled as a pregnancy.
+
+
+```{r identifying pregnancy starts}
+
+cycles = read_feather(path = paste0(IO$output_data,"cycles.feather"))
+
+ggplot(cycles[cycles$n_pos_preg_test>0,], aes(x = day_first_pos_preg_test))+
+  geom_histogram(binwidth = 1)+xlim(c(0,100))
+
+cycle_ids = unique(cycles$cycle_id[cycles$n_pos_preg_test > 0])
+
+foreach(cycle_id = cycle_ids) %do% {
+  k = which(cycles$cycle_id == cycle_id)
+  j = which((cycles$user_id == cycles$user_id[k]) & (cycles$cycle_nb %in% (cycles$cycle_nb[k]-1:5)))
+  if(length(j)<3){
+    median_cycle_length = 29
+  }else{
+    median_cycle_length = median(cycles$cycle_length[j])
+  }
+  cycleday_limit_pos_preg_test = median_cycle_length - 5
+  if(cycles$day_first_pos_preg_test[k]<cycleday_limit_pos_preg_test){ # got pregnant at previous cycle
+    # Merge the 2 cycles
+    
+  }
+  
+}
+
+```
+
+
+
+
 
 ```{r data_prep filtering users}
 
@@ -120,6 +265,70 @@ foreach(file = days_files) %do% {
   
 }
 ```
+
+
+```{r}
+
+      # if not enough of both -> 
+      #         - rough estimation of ovulation date from temp shift and from mucus peak
+      #         - interpolate + impute
+      
+      if((n_mucus >= (this_cycle_length - 10)) | (n_temp >= (this_cycle_length - 10))){
+        temp = interpolate(temp)
+        mucus = interpolate(mucus)
+      }else{
+        # is there a temperature shift
+        dc = d_this_cycle[d_this_cycle$variable == "temp",]
+        dc$temperature = dc$value
+        temp_phases = identify_temp_phases(dc)
+        jt = temp_phases$cycleday
+        if((jt>0) & (temp_phases)){ # there is a temperature shift
+          # check if there is high mucus a few days around the temperature shift day
+          if(any(mucus[max(1,jt-5):min(length(mucus),jt+3)] > 0.2, na.rm = TRUE)){
+            ovu_day = jt
+          }else{
+              
+            }
+        
+          
+        }
+        
+        
+        # is there a mucus peak
+        jm = which(mucus > 0.2)
+        jm = jm[length(jm)]
+        
+        # are the temp shift and the mucus peak within 5 days from each other?
+        if((jt>0) & (temp_phases)  & (length(jm)>0) & (abs(jt - jm) <= 5)){ ovu_day = mean(c(jt,jm))}
+        if(jt > 0 ){ovu}else{
+          if(this_cycle_length  %in% (median_cycle_length+(-10:10))) ovu_day = this_cycle_length - 13 
+          if(this_cycle$cycle_length  > (median_cycle_length-10)) ovu_day = median_cycle_length - 13
+        }
+        
+      }
+      
+     
+      if(temp_phases$delta_t >= 0.4){
+        
+      }
+      # is there a mucus peak
+      
+      
+    }
+    
+    if(this_cycle$cycle_length  %in% (median_cycle_length+(-10:10))){
+      
+    }else if(this_cycle$cycle_length  > (median_cycle_length-10)){
+      
+    }else if(this_cycle$cycle_length  < (median_cycle_length-10)){
+      
+    }
+    
+    
+    
+```
+
+
 
 
 ```{r tmp test, include = FALSE}

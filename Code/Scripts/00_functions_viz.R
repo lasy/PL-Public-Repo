@@ -37,11 +37,11 @@ plot.tracking.history = function(d = days,
     (!is.na(d$temperature)) |
     (d$opk > 0) |
     (d$sex > 0) |
-    (d$preg_test > 0) |
-    (d$vaginal_sensation > 0) |
+    (d$preg_test > 0)  |
     (d$cervix_firmness > 0) |
     (d$cervix_height > 0) |
     (d$cervix_openness > 0)
+  if("vaginal_sensation" %in% colnames(d)){ k = k | (d$vaginal_sensation > 0)}
   d$user_input = k
   
   
@@ -136,6 +136,7 @@ plot.tracking.history = function(d = days,
            cex = 0.5, pch = dict$opk$pch[match(d$opk, dict$opk$index)], 
            col = dict$opk$colors[match(d$opk, dict$opk$index)])
     line.preg = 1
+    if(any(d$preg_test == -1)){d$preg_test[d$preg_test == -1] = 2}
     points(d$date, rep(line.preg, nrow(d))+d$preg_test/3,
            cex = 1, pch = dict$preg.test.viz$pch[match(d$preg_test, dict$preg.test.viz$index)], 
            col = dict$preg.test.viz$colors[match(d$preg_test, dict$preg.test.viz$index)])

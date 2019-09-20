@@ -36,9 +36,9 @@ knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 
 ```{r PL_descr load data}
 
-load(paste0(IO$output_data, "users.Rdata"), verbose = TRUE)
-load(paste0(IO$output_data, "cycles.Rdata"), verbose = TRUE)
-load(paste0(IO$output_data, "days.Rdata"), verbose = TRUE)
+users = read_feather(path = paste0(IO$output_data, "users.feather"))
+cycles = read_feather(path = paste0(IO$output_data, "cycles.feather"))
+#load(paste0(IO$output_data, "days.Rdata"), verbose = TRUE)
 
 ```
 
@@ -96,7 +96,7 @@ g_hist_lt + annotation_custom(
 
 
 
-```{r PL_descr histograms with reprod objectives }
+```{r PL_descr histograms with reprod objectives , eval = FALSE}
 
 cycles$reprod_obj = users$reprod_obj[match(cycles$user_id, users$user_id)]
 
@@ -137,32 +137,46 @@ g_hist_lt + annotation_custom(
 
 ```{r PL_descr preg outcome}
 
-cycles$preg_outcome = factor(cycles$preg_test_class, 
+cycles$preg_outcome_based_on_duration = factor(cycles$preg_test_class, 
                              levels = c(dict$pregnancy_timeline$abbreviation,
                                         unique(cycles$preg_test_class)))
+
 j = which(cycles$preg_test_class == "pregnant")
 
-cycles$preg_outcome[j] = cut(cycles$cycle_length[j], 
+cycles$preg_outcome_based_on_duration[j] = cut(cycles$cycle_length[j], 
                              breaks = c(0,dict$pregnancy_timeline$duration_in_days), 
                              labels = as.character(dict$pregnancy_timeline$abbreviation))
 
 
-counts = table(cycles$preg_outcome[j])
 
-table(cycles$preg_outcome[j])/sum(cycles$preg_outcome %in% c("EPL","LPL","ExPTB","PTB","TB","BF"))
+cycles$cycle_length_next_cycle = cycles$cycle_length[match(paste0(cycles$user_id, "_",cycles$cycle_nb+1),cycles$cycle_id)]
+
+cycles$preg_outcome_cat = as.character(cycles$preg_outcome_based_on_duration)
+cycles$preg_outcome_cat[cycles$preg_outcome_based_on_duration == "TB noBF"] = "TB noBF (II)"
+cycles$preg_outcome_cat[cycles$preg_outcome_based_on_duration == "BF"] = "TB BF (II)"
+cycles$preg_outcome_cat[which((cycles$preg_outcome_cat == "TB") & (cycles$cycle_length_next_cycle <= 7*9))] = "TB noBF (I)"
+cycles$preg_outcome_cat[which((cycles$preg_outcome_cat == "TB") & (cycles$cycle_length_next_cycle > 7*9))] = "TB BF (I)"
+cycles$preg_outcome_cat[which((cycles$preg_outcome_cat == "TB") & (is.na(cycles$cycle_length_next_cycle)))] = "TB (III)"
+cycles$preg_outcome = dict$pregnancy_outcomes$categories[match(cycles$preg_outcome_cat, dict$pregnancy_outcomes$abbreviation)]
+cycles$preg_outcome_cat = factor(cycles$preg_outcome_cat, levels = unique(dict$pregnancy_outcomes$abbreviation))
+cycles$preg_outcome = factor(cycles$preg_outcome, levels = unique(dict$pregnancy_outcomes$categories))
+
+counts = table(cycles$preg_outcome_cat[j])
+
+table(cycles$preg_outcome_cat[j])/sum(cycles$preg_outcome_cat %in% c("EPL","LPL","ExPTB","PTB","TB noBF (I)","TB noBF (II)","TB (III)","TB BF (I)","TB BF (II)"))
 
 
 j = which(cycles$preg_test_class == "pregnant")
 
-ggplot(cycles[j,], aes(x = preg_outcome, fill = preg_outcome)) + 
+ggplot(cycles[j,], aes(x = preg_outcome, fill = preg_outcome_cat)) + 
   geom_bar(aes(y = (..count..)/sum(..count..)))+
   xlab("Pregnancy outcome")+ ylab("% cycles")+
-  scale_fill_manual(values = dict$pregnancy_timeline$colors)+
+  scale_fill_manual(values = dict$pregnancy_outcomes$colors)+
   scale_y_continuous(labels=percent)+
   guides(fill = FALSE)
 
-save(cycles, file = paste0(IO$output_data, "cycles.Rdata"))
-file.copy(from = paste0(IO$output_data, "cycles.Rdata"), to = paste0(IO$tmp_data, "cycles_with_preg_outcome.Rdata"), overwrite = TRUE)
+write_feather(cycles, path = paste0(IO$output_data, "cycles.feather"))
+file.copy(from = paste0(IO$output_data, "cycles.feather"), to = paste0(IO$tmp_data, "cycles_with_preg_outcome.feather"), overwrite = TRUE)
 
 ```
 
@@ -176,7 +190,7 @@ users_preg_outcome =  ddply(cycles,
                             .fun = summarize,
                             n_preg = sum(preg_test_class == "pregnant", na.rm = TRUE),
                             n_PL = sum(preg_outcome %in% c("EPL","LPL"), na.rm = TRUE),
-                            n_LB = sum(preg_outcome %in% c("ExPTB","PTB","TB","BF"), na.rm = TRUE)
+                            n_LB = sum(preg_outcome %in% c("ExPTB","PTB","TB noBF","BF"), na.rm = TRUE)
                             
 )
 
@@ -203,10 +217,26 @@ for(colname in colnames){
   eval(parse(text = paste0("users$",colname," = users_preg_outcome$",colname,"[m]")))
 }
 
-save(users, file = paste0(IO$output_data, "users.Rdata"))
-file.copy(from = paste0(IO$output_data, "users.Rdata"), to = paste0(IO$tmp_data, "users_with_preg_outcome.Rdata"), overwrite = TRUE)
+write_feather(users, path = paste0(IO$output_data, "users.feather"))
+file.copy(from = paste0(IO$output_data, "users.feather"), to = paste0(IO$tmp_data, "users_with_preg_outcome.feather"), overwrite = TRUE)
 
 ```
+
+
+```{r PL_descr type0 and type1 users}
+
+type0_users = (users$first_cycle_preg == 0) | (users$n_cycles_after_last_preg == 0) | is.na(users$first_cycle_preg)
+type1_users = !type0_users
+
+users$is_type_1_user = type1_users
+
+
+write_feather(users, path = paste0(IO$output_data, "users.feather"))
+file.copy(from = paste0(IO$output_data, "users.feather"), to = paste0(IO$tmp_data, "users_with_type.feather"), overwrite = TRUE)
+
+```
+
+
 
 
 

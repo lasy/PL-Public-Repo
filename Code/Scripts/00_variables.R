@@ -1,7 +1,7 @@
 # code parameters
 par = list()
 par$IO_user = Sys.getenv("LOGNAME")
-par$dataset =  "Kindara_subset" # "Kindara_full" "Kindara_subset"
+par$dataset =  "Kindara_full_new" # "Kindara_full" "Kindara_subset" "Kindara_subset_new"
 par$n_cores = detectCores() - 1
 par$max_batch_size = 5000
 par$min_n_batches = 10
@@ -95,10 +95,10 @@ dict$sex = data.frame(name = c("no sex","protected","unprotected","withdrawal","
                       values = 0:4)
 
 dict$pregnancy_timeline = data.frame(
-  abbreviation = c("FP-VEPL","EPL","LPL","ExPTB","PTB","TB","BF","unclear"),
-  name = c("False Positive or Very Early Pregnancy Loss","Early Pregnancy Loss","Late Pregnancy Loss","Extreme Pre-Term Birth","Pre-Term Birth","Term Birth","Breast Feeding", "Unclear"),
-  duration_in_weeks = c(6,13, 22 ,28, 37,43,80,Inf), 
-  colors = c("gray40","orange","tomato","red","plum","seagreen3","cornflowerblue","gray80"),
+  abbreviation = c("FP-VEPL","EPL","LPL","ExPTB","PTB","TB","TB noBF","BF","unclear"),
+  name = c("False Positive or Very Early Pregnancy Loss","Early Pregnancy Loss","Late Pregnancy Loss","Extreme Pre-Term Birth","Pre-Term Birth","Term Birth","Term Birth without Breast Feeding","Breast Feeding", "Unclear"),
+  duration_in_weeks = c(6,13, 22 ,28, 37,43,52,80,Inf), 
+  colors = c("gray40","orange","tomato","red","plum","seagreen3","seagreen4","skyblue2","gray80"),
   stringsAsFactors = FALSE)
 
 dict$pregnancy_timeline$duration_in_days = dict$pregnancy_timeline$duration_in_weeks*7
@@ -108,6 +108,25 @@ dict$pregnancy_timeline$duration_in_4weeks = dict$pregnancy_timeline$duration_in
 write.table(dict$pregnancy_timeline[,1:3], 
             file = paste0(IO$tables,"Pregnancy_timeline.csv"),
             sep = ",",quote = FALSE, row.names = FALSE)
+
+
+
+dict$pregnancy_outcomes = data.frame(
+  abbreviation = c("FP-VEPL","EPL","LPL","ExPTB","PTB","TB noBF (I)","TB noBF (II)", "TB (III)","TB BF (I)", "TB BF (II)","unclear"),
+  categories = c("FP-VEPL","EPL","LPL","ExPTB","PTB","TB noBF","TB noBF","TB noBF","BF","BF","unclear"),
+  name = c("False Positive or Very Early Pregnancy Loss","Early Pregnancy Loss","Late Pregnancy Loss",
+           "Extreme Pre-Term Birth","Pre-Term Birth",
+           "Term Birth without Breast Feeding (T pregnancy + short PP)","Term Birth without Breast Feeding (long pregnancy)", "Term Birth (no PP cycle)",
+           "Term Birth with Breast Feeding (T pregnancy + long PP)","Term Birth with Breast Feeding (very long pregnancy)", 
+           "Unclear"),
+  duration_in_weeks = c(6,13, 22 ,28, 37,43,52,43,43,80,Inf), 
+  colors = c("gray40","orange","tomato","red","plum",
+             "seagreen1","seagreen2","seagreen3",
+             "skyblue1","skyblue2","gray80"),
+  stringsAsFactors = FALSE)
+
+dict$pregnancy_outcomes$duration_in_days = dict$pregnancy_outcomes$duration_in_weeks*7
+dict$pregnancy_outcomes$duration_in_4weeks = dict$pregnancy_outcomes$duration_in_weeks/4
 
 
 dict$fertility_counting = data.frame(cycleday_from_end = -20:-8)
