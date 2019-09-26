@@ -11,8 +11,10 @@
 *_files_*/*
 
 
-#ignore big files
-*.html
+# ignore big files
+# *.html
 
 Code/.Rhistory
 Code/.DS_Store
+
+.DS_Store
