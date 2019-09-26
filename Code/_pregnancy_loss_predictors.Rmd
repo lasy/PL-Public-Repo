@@ -18,11 +18,7 @@ source("Scripts/00_setup.R")
 ```
 
 
-
-
-
 # Predictors of pregnancy losses
-
 
 ## Computing statistics for the 4 cycles before 1st pregnancy tests
 
@@ -83,8 +79,6 @@ write_feather(users, path = paste0(IO$output_data,"users.feather"))
 file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data,"users_with_stats_4_cycles.feather"), overwrite = TRUE)
 
 ```
-
-
 
 
 
@@ -210,26 +204,6 @@ ggplot(u, aes(x = sd_cycle_length_4, fill = is_first_preg_a_PL))+
 ```
 
 
-
-
-
-## Is something else predictive of pregnancy outcomes?
-
-### Detect ovulation in cycles without positive pregnancy tests
-
-* Use HMM model (adapt it to include prior knowledge and LH tests)
-
-* Label days table
-
-* Aggregate cycles table with
-
-    + ovulation day + uncertainty
-  
-    + temperature shift
-  
-* Aggregate users table with 
-
-    + average, minimum and maximum temperature shift for cycles before first positive preg test
 
 
 

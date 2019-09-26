@@ -27,8 +27,10 @@ Loading `users` and `days` tables.
 
 ```{r user_examples loading data}
 
-load(file = paste0(IO$output_data,"users.Rdata"), verbose = TRUE)
-load(file = paste0(IO$output_data,"days.Rdata"), verbose = TRUE)
+users = read_feather(path = paste0(IO$output_data, "users.feather"))
+cycles = read_feather(path = paste0(IO$output_data, "cycles.feather"))
+pregnancies = read_feather(path = paste0(IO$output_data, "pregnancies.feather"))
+
 ```
 
 
@@ -37,18 +39,13 @@ load(file = paste0(IO$output_data,"days.Rdata"), verbose = TRUE)
 
 ```{r user_examples PL}
 
-j = which((users$n_PL == 1) & (users$n_preg == 1) & (users$n_cycles %in% 15:20) & (users$n_days_obs %in% 300:400))
 
-for(user in users$user_id[j]){
-  cat("\n",user, "\n")
-  d = days[which((days$user_id == user) & (days$cycle_nb >= 2)),]
-  plot.tracking.history(d = d, show_tests = TRUE, average_temp = FALSE)
-}
+j_PL = which((users$n_PL == 1) & 
+               (users$n_preg == 1) & 
+               (users$user_type == 1) &
+               (users$n_cycles %in% 15:20) & 
+               (users$n_days_obs %in% 300:400)) 
 
-
-user_ids = c("70d07733a9884416b056b5f819be9094",
-             "aa1caffaa60c4a6086cd3db9bfecd5bd",
-             "aa6193a3ce84413196177052fe87f493")
 
 ```
 
@@ -58,51 +55,102 @@ user_ids = c("70d07733a9884416b056b5f819be9094",
 
 ```{r user_examples LB}
 
-j = which((users$n_LB == 1) & (users$n_preg == 1) & (users$n_cycles %in% 15:20) & (users$n_days_obs %in% 300:400))
-
-for(user in users$user_id[j]){
-  cat("\n",user, "\n")
-  d = days[which((days$user_id == user) & (days$cycle_nb >= 2)),]
-  plot.tracking.history(d = d, show_tests = TRUE, average_temp = FALSE)
-}
-
-
-user_ids = c(user_ids, 
-             "1552e3fc56dc48ba977d69ed2a987841",
-             "3b8f6fb7c38545fda33c5461bba340e5",
-             "3ee8da51d47e4c178f739450b57d69f2",
-             "6fa2b5df2c074a7da88a01207bed4352",
-             "c170dd91b6004d8283bd715941655019")
+j_LB = which((users$n_LB == 1) & 
+               (users$n_preg == 1) & 
+               (users$user_type == 1)& 
+               (users$n_cycles %in% 15:20) & 
+               (users$n_days_obs %in% 300:400))
 
 ```
 
 
-# Selected users
+## Selecting the users
+
+```{r user_examples selecting days}
 
 
-```{r user_examples selected users}
+j = unique(c(j_LB, j_PL))
+batches = table(users$batch[j]) %>%  sort(decreasing = TRUE) %>%  names() %>%  head(10) 
+
+tic()
+days = foreach(b = batches, .combine = rbind, .packages = "feather") %do%{
+  cat(b, "\n")
+  days =  read_feather(path = paste0(IO$output_data,"Days/days_",b,".feather"))
+  k = which(days$user_id %in% users$user_id[j])
+  days = days[k,]
+  return(days)
+}
+toc()
+
+write_feather(days, path = paste0(IO$tmp_data,"days_selected_users_examples_1.feather"))
+
+```
+
+
+```{r user_examples visualizing all examples for selection, eval=FALSE}
+
+for(user in unique(days$user_id)){
+  cat("\n",user, "\n")
+  d = days[which((days$user_id == user) & (days$cycle_nb >= 1)),]
+  plot.tracking.history(d = d, show_tests = TRUE, average_temp = FALSE)
+}
+
+
+```
+
+```{r user_examples selection}
+
+
+selected_users_LB = c("5b8a94bc60f1aad5ae030be0dddfbaf7783d99f5",
+                      "3232d37bc6999d32faffca55ee3c67d3832ca8e1",
+                      "d4a285083dac365f5ef76992bb14a885f69da1a6",
+                      "f5e9deb6f71eaedb7aeb91b4637aaf80d910ee75",
+                      "8f26d4876c83fde806ad847334b9c8dfbc48f8f6",
+                      "5fa514a52a3863f33fc37579fac513911016ead0",
+                      "aab98dc98261e99772693ffa81cafb6839e0316e")
+
+
+selected_users_PL = c("fbf10d778485d325bddffad0c24010e9fbcbaa32",
+                      "761e792a2309f4873d07ec95f6f595eb18d64621",
+                      "a1862179ab04585bd5d26a325152e2ac377a6ea2",
+                      "afdc30d1a29d04fd47ecd67cacf1bd22148ffdf8",
+                      "6b99ee04c897ffe7916527b020fd031f99518ca7"
+                      
+)
+
+others = c("83299899d84f008adad561c75cc7c3cf82106f8f")
+
+
+user_ids = c(selected_users_LB, selected_users_PL, others)
+
+all(user_ids %in% unique(days$user_id))
+
+```
+
+
+## Selected users
+
+
+```{r user_examples visualization of selected users}
 
 for(user in user_ids){
   cat("\n",user, "\n")
-  d = days[which((days$user_id == user) & (days$cycle_nb >= 2)),]
+  d = days[which((days$user_id == user) & (days$cycle_nb >= 1)),]
   plot.tracking.history(d = d, show_tests = TRUE, average_temp = FALSE)
 }
 
-
-user_ids = c("70d07733a9884416b056b5f819be9094",
-             "c170dd91b6004d8283bd715941655019",
-             "3b8f6fb7c38545fda33c5461bba340e5")
-
 ```
+
 
 
 
 
 ```{r user_examples saving selected users}
 
-user_ids = c("70d07733a9884416b056b5f819be9094",
-             "c170dd91b6004d8283bd715941655019",
-             "3b8f6fb7c38545fda33c5461bba340e5")
+user_ids = c("5b8a94bc60f1aad5ae030be0dddfbaf7783d99f5",
+"3232d37bc6999d32faffca55ee3c67d3832ca8e1",
+"761e792a2309f4873d07ec95f6f595eb18d64621",
+"d4a285083dac365f5ef76992bb14a885f69da1a6")
 
 days = days[which(days$user_id %in% user_ids),]
 save(days, file = paste0(IO$tmp_data,"days_selected_users.Rdata"))

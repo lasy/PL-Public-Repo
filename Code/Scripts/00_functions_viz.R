@@ -10,7 +10,8 @@ plot.tracking.history = function(d = days,
                                  show_consec_cycles = FALSE,
                                  show_fertile_window = FALSE, 
                                  relative_date = TRUE,
-                                 average_temp = TRUE){
+                                 average_temp = TRUE,
+                                 show_app_defined_cycle_starts = FALSE){
   
   n.lines = 5 # number of tracking lines (besides temperature)
   if(show_tests){n.lines = 7}
@@ -53,7 +54,11 @@ plot.tracking.history = function(d = days,
   
   plot(range(d$date), ylim, type = 'n' , axes = FALSE, 
        xlab = '', ylab = '', main = main, adj = 0, yaxs = 'i', ylim = ylim)
-  abline(v = d$date[which(d$first_day)], col = 'gray90')
+  if(show_app_defined_cycle_starts){
+    abline(v = d$date[which(d$first_day)], col = 'gray90')
+  }else{
+    abline(v = d$date[which(d$is_first_day)], col = 'gray90')
+  }
   abline(h = c(0:n.lines,ylim[2]), col = 'gray90')
   abline(h = seq(n.lines+0.5, ylim[2]-0.5, by = 0.5), col = 'gray95', lty = 2)
   if(show_fertile_window){

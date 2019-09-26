@@ -27,15 +27,15 @@ Provide a high-resolution description of pregnancy outcomes from self-reported r
 
 **Methods**
 
-We used a large retrospective de-identified dataset from the Kindara app, including 135,611 users of age 30.8 ± 4.68 with 1,716,012 cycles. All of these users had logged at least one positive pregnancy test while using the app. Pregnancies were detected from positive pregnancy tests logged by users. For 54% of these users, the pregnancy durations could not be identified either because users stopped using the app after getting pregnant or because the pregnancy tests were logged before any cycle had been logged, rendering the evaluation of the conception time impossible. For the remaining 46%, their most likely pregnancy outcomes were estimated based on the duration of these pregnancies while using the app (app usage duration for these users: 3.03 ± 1.59 years). 
+We used a large retrospective de-identified dataset from the Kindara app, including 135,611 users of age 30.8 ± 4.68 with 1,716,012 cycles. All of these users had logged at least one positive pregnancy test while using the app. Pregnancies were detected from positive pregnancy tests logged by users. For 54% of these users, the pregnancy durations could not be identified either because users stopped using the app after getting pregnant or because the pregnancy tests were logged before any cycle had been logged, rendering the evaluation of the conception time impossible. For the remaining 46%, their most likely pregnancy outcomes were estimated based on the duration of these pregnancies while using the app (app usage duration for these users: 3.03 ± 1.59 years). The reproductive objectives of the users were estimated based on goals that users declared upon first use of the app, and on the users’ sexual behavior in the three cycles preceding a pregnancy as well as during the conception cycle to account for users who may have changed their reproductive intentions while using the app.
 
 **Results**
 
-It was found that 36% of these cycles with a positive pregnancy test end up in a birth at term; that 2% lead to pre-term births (5% of all live-births); that 15% of these cycles were either false positive tests, mis-interpreted tests, incorrect data entry or ended up in very early pregnancy losses;  that 20% of these cycles end up in a 1st trimester pregnancy loss; and that  10% ended in a 2nd trimester pregnancy loss. The outcome of the remaining 18% could not be confidently identified as some users did not use the app for over 1.5 years after getting pregnant. We also found that about 52% of the users with at least one positive pregnancy test never experienced any pregnancy loss whist using the app, while 6% of these users experienced 2 or more pregnancy losses while using the app.  
+It was found that 36% of these cycles with a positive pregnancy test end up in a birth at term; that 2% lead to pre-term births (5% of all live-births); that 15% of these cycles were either false positive tests, mis-interpreted tests, incorrect data entries, or ended up in very early pregnancy losses;  that 20% of these cycles end up in a 1st trimester pregnancy loss; and that  10% ended in a 2nd trimester pregnancy loss. The outcome of the remaining 18% could not be confidently identified as some users did not use the app for over 1.5 years after getting pregnant. We also found that about 52% of the users with at least one positive pregnancy test never experienced any pregnancy loss whilst using the app, while 6% of the users experienced 2 or more pregnancy losses.
 
 **Conclusion(s)**
 
-The pregnancy loss rates among these app users were higher than previously reported for the US population, which is where most users are based, while the pre-term birth rates were lower. These differences could be explained by biases in this self-selected population, by inconsistent tracking behaviors or perhaps by factors related to the behaviors of women who experience a pre-term birth. The scale of the dataset allows for a more detailed description of the distribution of pregnancy duration; this will enable enhanced design of further recruitment of prospective digital cohorts via such apps.
+The pregnancy loss rates among these app users were higher than previously reported for the US population, which is where most app users are based, while the pre-term birth rates were lower. These differences could be explained by biases in this self-selected population, by inconsistent tracking behaviors, or perhaps by factors related to the behaviors of women who experience a pre-term birth. On the other hand, despite these potential biases, the scale of the dataset allows for a higher resolution view of the distribution of pregnancy duration than previously possible. This study thus demonstrates both the utility and the limitations of fertility tracking apps, as a promising new tool for studying pregnancy outcomes in large prospective cohorts, and can lead to enhanced designs of future studies relying on digitally collected data.  
 
 
 # Figures
@@ -75,6 +75,7 @@ The current version of the paper can be downloaded on !! [medRxiv](XXX) !!
 
 
 # Peer-reviewed published article
+
 Coming soon
 
 

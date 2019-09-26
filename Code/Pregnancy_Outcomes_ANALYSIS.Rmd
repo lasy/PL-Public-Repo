@@ -1,7 +1,7 @@
 ---
-title: "Evaluating Pregnancy Outcomes from Digital Self-records"
+title: "Data Analysis for 'Evaluating Pregnancy Outcomes from Digital Self-records'"
 author: "Laura Symul"
-date: "`r format(Sys.time(), '%d %B, %Y')`"
+date: "last update: `r format(Sys.time(), '%d %B, %Y')`"
 output: 
   bookdown::html_document2: 
     theme: flatly
@@ -14,7 +14,7 @@ output:
 ---
 
 
-```{r PL setup, include = FALSE, eval = TRUE}
+```{r PL setup, include = FALSE, eval = TRUE, cache = FALSE}
 knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 source("Scripts/00_setup.R")
 ```
@@ -26,9 +26,10 @@ source("Scripts/00_setup.R")
 ```{r child = '_data_prep.Rmd', cache=TRUE}
 ```
 
+```{r child = '_data_prep_pregnancy_outcomes.Rmd', cache=TRUE}
+```
 
-
-```{r child = '_data_presentation.Rmd', cache=TRUE}
+```{r child = '_reproductive_objective.Rmd', cache=TRUE}
 ```
 
 ```{r child = '_pregnancy_loss_description.Rmd', cache=TRUE}

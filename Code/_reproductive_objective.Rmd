@@ -13,107 +13,438 @@ output:
     fig_caption: true
 ---
 
+```{r reprod_obj knitr options}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
 
 
 ```{r reprod_obj setup, include = FALSE, eval = TRUE, cache = FALSE}
 source("Scripts/00_setup.R")
 ```
 
-```{r reprod_obj knitr options}
-knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
-```
 
+
+# Reproductive objectives of the users 
+
+## Data preparation
+
+### Loading cycles and users
 
 ```{r reprod_obj load data}
+users = read_feather(path = paste0(IO$output_data, "users.feather"))
+cycles = read_feather(path = paste0(IO$output_data, "cycles.feather"))
+pregnancies = read_feather(path = paste0(IO$output_data, "pregnancies.feather"))
+```
 
-load(paste0(IO$output_data, "users.Rdata"), verbose = TRUE)
-load(paste0(IO$output_data, "cycles.Rdata"), verbose = TRUE)
-load(paste0(IO$output_data, "days.Rdata"), verbose = TRUE)
+### Identifying the 3 cycles preceding a pregnancy
+
+```{r reprod_obj pregnancy id}
+
+cycles$cycle_nb_from_next_preg = NA
+j_preg = which(cycles$preg_test_class == "pregnant")
+cycles$pregnancy_id = NA 
+j3 = match(paste0(cycles$user_id[j_preg],"_",cycles$cycle_nb[j_preg] - 3),cycles$cycle_id)
+cycles$cycle_nb_from_next_preg[j3] = -3 
+cycles$pregnancy_id[j3[!is.na(j3)]] = cycles$cycle_id[j_preg[!is.na(j3)]] 
+j2 = match(paste0(cycles$user_id[j_preg],"_",cycles$cycle_nb[j_preg] - 2),cycles$cycle_id)
+cycles$cycle_nb_from_next_preg[j2] = -2
+cycles$pregnancy_id[j2[!is.na(j2)]] = cycles$cycle_id[j_preg[!is.na(j2)]] 
+j1 = match(paste0(cycles$user_id[j_preg],"_",cycles$cycle_nb[j_preg] - 1),cycles$cycle_id)
+cycles$cycle_nb_from_next_preg[j1] = -1
+cycles$pregnancy_id[j1[!is.na(j1)]] = cycles$cycle_id[j_preg[!is.na(j1)]] 
+j0 = j_preg
+cycles$cycle_nb_from_next_preg[j0] = 0
+cycles$pregnancy_id[j0] = cycles$cycle_id[j_preg] 
 
 ```
 
-# Reproductive objectives of the users
 
-## Based on their sexual behavior
+## based on what they reported in the app at on-boarding
 
-We look at the overlap between their unprotected sexual intercourse and their fertility window.
+```{r reprod_obj pregnancy outcomes by reproductive objective as declared by the users}
+
+ggplot(pregnancies, aes(x = preg_duration, fill = reprod_obj_app) )+
+  geom_histogram(position = "identity",binwidth = 7, alpha = 1) +
+  facet_grid(reprod_obj_app ~ . , scale = "free")+
+  xlim(0,1000)
+
+
+ggplot(pregnancies, aes(x = preg_outcome, fill = reprod_obj_app) )+
+  geom_bar() +
+  facet_grid(reprod_obj_app ~ . , scale = "free")
+
+t1 = table( pregnancies$reprod_obj_app, pregnancies$preg_outcome)
+round(100* t1/apply(t1, 1, sum))
+
+```
+It seems a little counter-intuitive as users who declared wanting to avoid pregnancy have the highest proportion of live-birth and the lowest proportion of pregnancy losses.
+
+Maybe, it is because these labels are not reliable.
+
+```{r reprod_obj reliability of the reproductive objective as declared by the users}
+
+ggplot(cycles[cycles$n_insemination > 0,], aes(n_insemination, fill = reprod_obj_app))+
+  geom_histogram(position = "identity",binwidth = 1) + xlim(0,20) +
+  facet_grid(reprod_obj_app ~ ., scale = "free")
+
+table(cycles$reprod_obj_app, cycles$n_insemination > 0)
+table(cycles$reprod_obj_app, cycles$n_insemination > 0)/apply(table(cycles$reprod_obj_app, cycles$n_insemination > 0)
+, 1, sum)
+
+
+
+ggplot(cycles[cycles$n_prot_sex > 0,], aes(n_prot_sex, fill = reprod_obj_app))+
+  geom_histogram(position = "identity",binwidth = 1) + xlim(0,20) +
+  facet_grid(reprod_obj_app ~ ., scale = "free")
+
+```
+
+A lot of the users who declared wanting to avoid pregnancy are actually logging inseminations; similarly, many of those who declare wanting to achieve pregnancy log protected sexual intercourses.
+
+It may thus be relevant to attempt to guess the reproductive objectives based on the sexual behavior of the users.
+
+However, sexual intercourses are not logged in many cycles, including those in which positive pregnancy tests are logged.
+
+```{r reprod_obj number of cycles in  which no sexual intercourses are logged}
+
+table(cycles$n_tot_sex == 0) / sum(table(cycles$n_tot_sex == 0))
+
+t2 = table(cycles$preg_test_class, cycles$n_tot_sex == 0)
+t2
+t2/apply(t2, 1, sum)
+
+```
+
+We can, nonetheless attempt to estimate the reproductive objectives for the users who do log sexual intercourses.
+
+## based on their sexual behavior in the 3 previous cycles
+
+We look at the overlap between their unprotected sexual intercourse and their fertility window in the 3 cycles preceding a pregnancy.
+
 
 ### Fertile window: counting backward
 
-As a naive approach, we can first define the fertile window counting backward from the end of each cycle.
-
+We can define the fertile window counting backward from the end of each cycle, assuming an identical luteal phase for each cycle and each users.
 
 ```{r reprod_obj adding fertile window to the days table}
 
-days$fertility = dict$fertility_counting$fertility[
-  match(days$cycleday_from_end, dict$fertility_counting$cycleday_from_end)]
-days$fertility[is.na(days$fertility)] = 0
+input_days_folder = paste0(IO$output_data,"Days/")
+tmp_folder = paste0(IO$tmp_data, "Days_with_fertility/")
+if(!dir.exists(tmp_folder)){dir.create(tmp_folder)}
 
-days$unprot_sex_when_fertile = (days$sex %in% c(2,4)) * days$fertility
+cl = makeCluster(par$n_cores)
+registerDoParallel(cl)
 
+days_files = list.files(input_days_folder)
 
+foreach(file  = days_files, .packages = c('plyr','dplyr','feather')) %dopar%
+{
+  days = read_feather(path = paste0(input_days_folder,file))
+  
+  j = which(cycles$cycle_nb_from_next_preg %in% -3:-1)
+  days = days[days$cycle_id %in% cycles$cycle_id[j],]
+  
+  days$fertility_counting = dict$fertility_counting$fertility[
+    match(days$cycleday_from_end, dict$fertility_counting$cycleday_from_end)]
+  days$fertility_counting[is.na(days$fertility_counting)] = 0
+  
+  cycles_agg = aggregate(fertility_counting ~ cycle_id, days, mean, na.rm = TRUE)
+  
+  days_mean_fertility = cycles_agg$fertility_counting[match(days$cycle_id, cycles_agg$cycle_id)]
+  
+  days$fertility_counting_n = days$fertility_counting - days_mean_fertility
+  
+  ok = write_feather(days, path = paste0(tmp_folder,file))
+}
 
-save(days, file = paste0(IO$output_data, "days.Rdata"))
-file.copy(from = paste0(IO$output_data, "days.Rdata") , to = paste0(IO$tmp_data, "days_with_fertility.Rdata"), overwrite = TRUE)
-
+stopImplicitCluster()
 
 ```
 
 
+### Reproductive objective scores per cycle
 
 ```{r reprod_obj reproductive objective score per cycle}
 
-reprod_obj_cycles  = aggregate(unprot_sex_when_fertile ~ cycle_id, days, sum, na.rm = TRUE)
-
-cycles$n_unprot_sex_when_fertile = reprod_obj_cycles$unprot_sex_when_fertile[match(cycles$cycle_id, reprod_obj_cycles$cycle_id)]
-cycles$n_unprot_sex_when_fertile[is.na(cycles$n_unprot_sex_when_fertile)] = 0
-
-cycles$reprod_objective_score = cycles$n_unprot_sex_when_fertile/(cycles$n_unprot_sex + cycles$n_insemination)
-
-
-
-save(cycles, file = paste0(IO$output_data, "cycles.Rdata"))
-file.copy(from = paste0(IO$output_data, "cycles.Rdata") , to = paste0(IO$tmp_data, "cycles_with_reprod_obj_scores.Rdata"), overwrite = TRUE)
-
-```
-
-
-
-
-```{r reprod_obj reproductive objective per users}
-
-
-cycles_tmp = cycles
-cycles_tmp$before_fist_preg_test = cycles$cycle_nb < users$first_cycle_preg[match(cycles$user_id, users$user_id)]
-
-reprod_obj_users =  ddply(cycles_tmp[which(cycles_tmp$before_fist_preg_test),], 
-                            .(user_id), 
-                            .fun = summarize,
-                            avg_reprod_score = mean(reprod_objective_score, na.rm = TRUE),
-                            median_reprod_score = median(reprod_objective_score, na.rm = TRUE),
-                            n_na_reprod_score = sum(is.na(reprod_objective_score)),
-                            n_insemination = sum(n_insemination)
-)
-
-
-column_names = colnames(reprod_obj_users)
-column_names = column_names[-which(column_names %in% colnames(users))]
-m = match(users$user_id, reprod_obj_users$user_id)
-for(column  in column_names){
-  eval(parse(text = paste0("users$",column,"= reprod_obj_users$",column,"[m]")))
-  #eval(parse(text = paste0("users$",column,"[is.na(users$",column,")]= 0")))
+reproductive_obj_score = function(fertility, fertility_n, sex){
+  score = sum(fertility_n * (sex == 2)) +
+    -1 * sum(fertility * (sex == 1)) +
+    -0.5 * sum(fertility * (sex == 3)) +
+    2 * any(sex == 4)
+  
+  return(score)
 }
 
+tmp_folder = paste0(IO$tmp_data, "Days_with_fertility/")
+days_files = list.files(tmp_folder)
 
-users$reprod_obj = ifelse(users$n_insemination > 0, "conception",
-                          ifelse(users$n_na_reprod_score > (users$first_cycle_preg/2), "unknown",
-                                 ifelse((users$median_reprod_score < 0.05)&(users$avg_reprod_score < 0.1),
-                                        "contraception","conception")))
+cl = makeCluster(par$n_cores)
+registerDoParallel(cl)
 
+cycles_agg = foreach(file  = days_files, .combine = rbind, .packages = c('plyr','dplyr','feather')) %dopar%
+{
+  days = read_feather(path = paste0(tmp_folder,file))
+  
+  cycles_agg = ddply(days,
+                     "cycle_id",
+                     summarise,
+                     reprod_obj_score = reproductive_obj_score(fertility_counting, fertility_counting_n, sex))
+  
+  return(cycles_agg)
+}
 
-save(users, file = paste0(IO$output_data, "users.Rdata"))
-file.copy(from = paste0(IO$output_data, "users.Rdata") , to = paste0(IO$tmp_data, "users_with_reprod_obj.Rdata"), overwrite = TRUE)
+stopImplicitCluster()
+
+cycles$reprod_obj_score_counting = cycles_agg$reprod_obj_score[match(cycles$cycle_id, cycles_agg$cycle_id)]
+
+write_feather(cycles, path = paste0(IO$output_data, "cycles.feather"))
+ok = file.copy(from = paste0(IO$output_data, "cycles.feather") , to = paste0(IO$tmp_data, "cycles_with_reprod_obj_scores.feather"), overwrite = TRUE)
 
 ```
 
+
+### Reproductive objective scores per pregnancy
+
+```{r reprod_obj reproductive objective per pregnancy}
+
+score_agg = aggregate(reprod_obj_score_counting ~  pregnancy_id  , cycles, median, na.rm = TRUE)
+pregnancies$reprod_obj_score_counting = score_agg$reprod_obj_score_counting[match(pregnancies$pregnancy_id, score_agg$pregnancy_id)]
+
+sex_agg = aggregate(n_tot_sex ~ pregnancy_id, cycles, sum, na.rm = TRUE)
+pregnancies$n_tot_sex = sex_agg$n_tot_sex[match(pregnancies$pregnancy_id, sex_agg$pregnancy_id)]
+
+
+pregnancies$reprod_obj_counting = cut(pregnancies$reprod_obj_score_counting, 
+                             breaks = c(-Inf, -0.1,0.1,Inf),
+                             labels = c("avoid_preg","unknown","get_preg"))
+
+
+ggplot(pregnancies, aes(x = reprod_obj_score_counting, fill = reprod_obj_counting))+
+  geom_histogram(binwidth = 0.1)
+
+write_feather(pregnancies, path = paste0(IO$output_data,"pregnancies.feather"))
+file.copy(from = paste0(IO$output_data,"pregnancies.feather"), to = paste0(IO$tmp_data,"pregnancies_with_3_cycles_score.feather") , overwrite = TRUE)
+
+```
+
+
+### Consistency between user-declared objectives and computed objectives
+
+```{r reprod_obj consistency}
+
+ggplot(pregnancies[which(pregnancies$reprod_obj_score_counting != 0),], 
+       aes(x = reprod_obj_score_counting, fill = reprod_obj_counting))+
+  geom_histogram(position = "identity", binwidth = 0.1, alpha = 1) +
+  facet_grid(reprod_obj_app ~ . , scale = "free")+
+  geom_vline(xintercept = 0)+
+  xlim(c(-3,3))
+
+
+```
+
+
+
+### Pregnancy outcomes per reproductive objective
+
+```{r reprod_obj visualization of pregnancy duration per reprod objectives}
+
+ggplot(pregnancies, aes(x = preg_duration, fill = reprod_obj_counting) )+
+  geom_histogram(position = "identity",binwidth = 7, alpha = 0.5) +
+  facet_grid(reprod_obj_counting ~ . , scale = "free")+
+  xlim(0,1000)
+
+
+ggplot(pregnancies, aes(x = preg_outcome, fill = reprod_obj_counting) )+
+  geom_bar() +
+  facet_grid(reprod_obj_counting ~ . , scale = "free")
+
+```
+
+
+Here again, it seems that the users who are trying to avoid pregnancy have proportionally less induced or spontaneous pregnancy losses.
+
+## Based on the sexual behavior within the cycle at which the users got pregnant
+
+The 3 previous cycles may not reflect the intentions of the user at the cycle at which they got pregnant, as they may have changed their mind and got pregnant quite rapidly.
+
+But maybe, we can guess whether they were trying to avoid a pregnancy if they logged protected sex or withdrawal before they logged their first positive pregnancy test. If they were, it may mean that these users got pregnant from a mis-estimation of their fertile window.
+
+```{r reprod_obj protected sex or withdrawal before first positive pregnancy test}
+
+
+cycle_ids = cycles$cycle_id[!is.na(cycles$preg_outcome)]
+input_days_folder = paste0(IO$output_data,"Days/")
+
+tic()
+cl = makeCluster(par$n_cores)
+registerDoParallel(cl)
+
+days_files = list.files(input_days_folder)
+
+cycles_agg = foreach(file  = days_files, .combine = rbind, .packages = c('plyr','dplyr','feather')) %dopar%
+{
+  days = read_feather(path = paste0(input_days_folder,file))
+  
+  days$fluid_eggwhite[is.na(days$fluid_eggwhite)] = 0
+  days$fluid_watery[is.na(days$fluid_watery)] = 0
+  days$fertile_mucus = days$fluid_eggwhite + days$fluid_watery
+  
+  j = which(days$cycle_id %in% cycle_ids)
+  days = days[j,]
+  days_first_pos_preg_test = cycles$day_first_pos_preg_test[match(days$cycle_id, cycles$cycle_id)]
+  j = which(days$cycleday < days_first_pos_preg_test)
+  
+  cycles_agg = ddply(days[j,],
+                     "cycle_id",
+                     summarise,
+                     n_prot_sex_no_mucus = sum((sex == 1) & (fertile_mucus == 0), na.rm = TRUE),
+                     n_withdrawal_no_mucus = sum((sex == 3) & (fertile_mucus == 0), na.rm = TRUE),
+                     n_unprot_sex_no_mucus = sum((sex == 2) & (fertile_mucus == 0), na.rm = TRUE),
+                     n_insemination_no_mucus = sum((sex == 4) & (fertile_mucus == 0), na.rm = TRUE),
+                     n_prot_sex_mucus = sum((sex == 1) & (fertile_mucus > 0), na.rm = TRUE),
+                     n_withdrawal_mucus = sum((sex == 3) & (fertile_mucus > 0), na.rm = TRUE),
+                     n_unprot_sex_mucus = sum((sex == 2) & (fertile_mucus > 0), na.rm = TRUE),
+                     n_insemination_mucus = sum((sex == 4) & (fertile_mucus > 0), na.rm = TRUE))
+  
+  return(cycles_agg)
+}
+
+stopImplicitCluster()
+toc()
+
+cycles_agg_long = melt(cycles_agg, id.vars = "cycle_id")
+ggplot(cycles_agg_long, aes(x = value, fill = variable)) + geom_histogram() + facet_grid(variable ~ ., scale = "free") + xlim(c(0.2,30))
+
+
+#table(pmin(5, cycles_agg$n_prot_sex), pmin(10, cycles_agg$n_unprot_sex))
+
+```
+
+```{r reprod_obj adding n_sex to pregnancies}
+m = match(pregnancies$pregnancy_id, cycles_agg$cycle_id)
+
+colnames_to_add = colnames(cycles_agg[,-1])
+for(col_ in colnames_to_add){
+  eval(parse(text = paste0("pregnancies$",col_," = cycles_agg$",col_,"[m]")))
+}
+
+```
+
+
+```{r reprod_obj score from sexual behavior in the cycle they got pregnant}
+
+pregnancies$reprod_obj_score_in_cycle = 0 + 
+  - 2*pregnancies$n_prot_sex_mucus +
+  - 1*pregnancies$n_prot_sex_no_mucus +
+  - 1 * pregnancies$n_withdrawal_mucus +
+  - 0.5 * pregnancies$n_withdrawal_no_mucus 
+
+pregnancies$reprod_obj_score_in_cycle[pregnancies$n_unprot_sex_mucus > 1] = 2
+
+pregnancies$reprod_obj_score_in_cycle[(pregnancies$n_insemination_no_mucus + pregnancies$n_insemination_mucus)>0] = 10
+
+pregnancies$reprod_obj_score_in_cycle[is.na(pregnancies$reprod_obj_score_in_cycle)] = 0
+
+pregnancies$reprod_obj_in_cycle = cut(pregnancies$reprod_obj_score_in_cycle, breaks = c(-Inf, -0.5, 0.5, Inf),
+                                      labels = c("avoid_preg","unknown","get_preg"))
+
+```
+
+
+
+```{r reprod_obj consistency with user declared objectives}
+
+ggplot(pregnancies[pregnancies$reprod_obj_score_in_cycle <0,], aes(x = reprod_obj_score_in_cycle, fill = reprod_obj_app))+
+  geom_histogram(binwidth = 0.5)+
+  facet_grid(reprod_obj_app ~. , scale = "free")
+
+table(pregnancies$reprod_obj_in_cycle, pregnancies$reprod_obj_app)
+
+```
+
+```{r reprod_obj pregnancy outcomes based on in-cycle sexual behavior}
+
+ggplot(pregnancies, aes(x = preg_duration, fill = reprod_obj_in_cycle) )+
+  geom_histogram(position = "identity",binwidth = 7, alpha = 0.5) +
+  facet_grid(reprod_obj_in_cycle ~ . , scale = "free")+
+  xlim(0,1000)
+
+
+ggplot(pregnancies, aes(x = preg_outcome, fill = reprod_obj_in_cycle) )+
+  geom_bar() +
+  facet_grid(reprod_obj_in_cycle ~ . , scale = "free")
+
+
+```
+
+
+## Combining all of these indicators
+
+If a user declared not wanting to get pregnant and logged sexual intercourses in the 3 previous cycles and in the conception cycle that were consistent with this declared objective, we can assume that this user was indeed trying to avoid pregnancy.
+
+If, on the other side of the spectrum, a user declared that they wanted to achieve pregnancy and were acting consistently or received insemination, we can safely assume that they wanted to get pregnant. 
+
+In all other cases, we will label the user with an "unknown" reproductive objective for the specific pregnancies.
+
+```{r reprod_obj combining the 3 indicators}
+
+pregnancies$reprod_obj = "unknown"
+
+j = which((pregnancies$reprod_obj_app == "avoid_preg") & 
+            ((pregnancies$reprod_obj_counting == "avoid_preg") | 
+               (is.na(pregnancies$reprod_obj_counting) & (pregnancies$cycle_nb < 4))) & 
+            (pregnancies$reprod_obj_in_cycle %in% c("avoid_preg","unknown")))
+pregnancies$reprod_obj[j] = "avoid_preg"
+
+
+j = which((pregnancies$reprod_obj_app %in% c("get_preg","preg")) & 
+            ((pregnancies$reprod_obj_counting == "get_preg") | 
+               (is.na(pregnancies$reprod_obj_counting) & (pregnancies$cycle_nb < 4))) & 
+            (pregnancies$reprod_obj_in_cycle %in% c("get_preg","unknown")))
+pregnancies$reprod_obj[j] = "get_preg"
+
+table(pregnancies$reprod_obj)
+table(pregnancies$reprod_obj_app)
+table(pregnancies$reprod_obj_counting)
+table(pregnancies$reprod_obj_in_cycle)
+
+
+write_feather(pregnancies, path = paste0(IO$output_data,"pregnancies.feather"))
+file.copy(from = paste0(IO$output_data,"pregnancies.feather"), to = paste0(IO$tmp_data,"pregnancies_with_reprod_obj.feather") , overwrite = TRUE)
+
+
+
+
+```
+
+```{r reprod_obj add reprod_obj at first pregnancy to the user table}
+
+users$reprod_obj_at_first_pregnancy = pregnancies$reprod_obj[match(paste0(users$user_id, "_",users$first_cycle_preg),pregnancies$pregnancy_id)]
+
+
+table(users$reprod_obj_at_first_pregnancy, users$reprod_obj_app)
+
+write_feather(users, path = paste0(IO$output_data,"users.feather"))
+file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data,"users_with_reprod_obj_at_first_pregnancy.feather"), overwrite = TRUE)
+
+```
+
+
+### Pregnancy outcomes per reproductive objectives (combined indicator)
+
+```{r reprod_obj pregnancy outcomes per reprod obj - combined indicator}
+
+ggplot(pregnancies, aes(x = preg_duration, fill = reprod_obj) )+
+  geom_histogram(position = "identity",binwidth = 7, alpha = 0.5) +
+  facet_grid(reprod_obj ~ . , scale = "free")+
+  xlim(0,1000)
+
+
+ggplot(pregnancies, aes(x = preg_outcome, fill = reprod_obj) )+
+  geom_bar() +
+  facet_grid(reprod_obj ~ . , scale = "free")
+
+
+```
 

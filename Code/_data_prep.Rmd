@@ -231,6 +231,8 @@ foreach(file = files, .packages = c("feather","zoo","plyr","dplyr","tictoc","for
   o = order(days$user_id, days$date)
   days = days[o,]
   days$is_first_day = FALSE
+  days$first_day_type = NA
+  
   days = mutate(days,
                 day_id = paste0(user_id, "_",date))
   
@@ -258,6 +260,11 @@ foreach(file = files, .packages = c("feather","zoo","plyr","dplyr","tictoc","for
   
   days$is_first_day[days$day_id %in% day_ids] = TRUE
   
+  agg = aggregate(date ~ user_id, days, min)
+  days$first_day_type[days$day_id %in% paste0(agg$user_id,"_",agg$date)] = 0
+  days$first_day_type[days$is_first_day] = 1
+
+    
   write_feather(days, path = paste0(output_folder,file))
   file.copy(from = paste0(output_folder,file), to = paste0(tmp_folder,file), overwrite = TRUE)
 }
@@ -292,7 +299,7 @@ cycles = foreach(file  = days_files, .combine = rbind, .packages = "feather") %d
   dim(days)
   
   # creating the cycles table
-  cycles = days[days$is_first_day, c("user_id","date")]
+  cycles = days[!is.na(days$first_day_type), c("user_id","date","first_day_type")]
   colnames(cycles)[which(colnames(cycles) == "date")] = "start_date"
   cycles = cycles[order(cycles$user_id, cycles$start_date),]  
   
@@ -321,7 +328,7 @@ We create unique cycle ID in the cycle table
 # cycles = read_feather(path = paste0(IO$output_data,"users.Rdata"))
 cycles = cycles[order(cycles$user_id, cycles$start_date),]
 
-cycles$cycle_nb = ave(rep(1, nrow(cycles)), cycles$user_id, FUN = cumsum)
+cycles$cycle_nb = ave(cycles$first_day_type, cycles$user_id, FUN = cumsum)
 cycles$cycle_id = paste0(cycles$user_id, "_" ,cycles$cycle_nb)
 
 cycles$end_date = cycles$start_date[match(cycles$cycle_id, paste0(cycles$user_id,"_",cycles$cycle_nb-1))] - 1
@@ -354,7 +361,7 @@ ok = foreach(file  = days_files, .packages = "feather") %dopar%
   dim(days)
   
   # take the part of cycles that matches with the days users
-  j = which((cycles$user_id %in% unique(days$user_id)) & (!is.na(cycles$cycle_length)))
+  j = which(cycles$user_id %in% unique(days$user_id)) #& (!is.na(cycles$cycle_length)))
   cycles_sub = cycles[j,]
   # for unfinished cycles, we will consider a time-window of 3 years = 1095 days after the start of the cycle to capture information about these on-going cycles.
   cycles_sub$cycle_length[which(is.na(cycles_sub$cycle_length))] = 1095
@@ -429,25 +436,19 @@ cycles_agg = foreach(file  = days_files, .combine = rbind, .packages = c('plyr',
   colnames(days)
   dim(days)
   
-  # take this oppotunity to change the way preg tests are encoded
-  days$preg_test_o = days$preg_test
-  days$preg_test[days$preg_test == 2] = -1
-  
-  write_feather(days, path = paste0(output_days_folder,file))
-  
   # 
   cycles_agg = ddply(days, 
                      .(cycle_id), 
-                     .parallel = TRUE,  # FALSE,  # TRUE
+                     .parallel = FALSE,  # FALSE,  # TRUE
                      .fun = summarize,
                      cycle_length = min(cycle_length),
                      n_days_obs = lu(date),
                      last_obs_day = max(cycleday),
                      n_pos_preg_test = sum(preg_test == 1),
                      n_neg_preg_test = sum(preg_test == -1),
-                     day_from_end_first_pos_preg_test = min( cycleday_from_end * (preg_test == 1), na.rm = TRUE),
-                     day_last_pos_preg_test = max(cycleday * (preg_test == 1), na.rm = TRUE),
-                     day_last_preg_test  = max(cycleday * (preg_test %in%  c(1,-1)), na.rm = TRUE),
+                     day_from_end_first_pos_preg_test = min(Inf, cycleday_from_end * (preg_test == 1), na.rm = TRUE),
+                     day_last_pos_preg_test = max(-Inf, cycleday * (preg_test == 1), na.rm = TRUE),
+                     day_last_preg_test  = max(-Inf,cycleday * (preg_test %in%  c(1,-1)), na.rm = TRUE),
                      n_tot_sex = sum(sex > 0, na.rm = TRUE),
                      n_prot_sex = sum(sex == 1, na.rm = TRUE),
                      n_unprot_sex =  sum(sex == 2, na.rm = TRUE),
@@ -495,8 +496,8 @@ write_feather(cycles_agg, path = paste0(IO$tmp_data, "cycles_agg.feather"))
 
 ```{r data_prep adding cycles_agg to cycles}
 
-column_names = colnames(cycles_agg)
-column_names = column_names[-which(column_names %in% colnames(cycles))]
+column_names = colnames(cycles_agg[,-which(colnames(cycles_agg) %in% c("cycle_id","cycle_length"))])
+#column_names = column_names[-which(column_names %in% colnames(cycles))]
 m = match(cycles$cycle_id, cycles_agg$cycle_id)
 for(column  in column_names){
   eval(parse(text = paste0("cycles$",column,"= cycles_agg$",column,"[m]")))
@@ -510,8 +511,20 @@ file.copy(from = paste0(IO$output_data,"cycles.feather"), to = paste0(IO$tmp_dat
 ```
 
 
+```{r data_prep pregnancy type}
+
+cycles$preg_type = NA
+cycles$preg_type[which((cycles$preg_test_class == "pregnant") & (!is.na(cycles$cycle_length)))] = 1
+cycles$preg_type[which((cycles$preg_test_class == "pregnant") & (is.na(cycles$cycle_length)))] = 0
+cycles$preg_type[which((cycles$preg_test_class == "pregnant") & (cycles$cycle_nb == 0))] = -1
+
+```
+
+
 
 ## Augmenting the user table
+
+### From the cycles and days tables
 
 - with number of cycles before first positive pregnancy test
 - with number of cycles after last positive pregnancy test
@@ -572,7 +585,6 @@ file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data
 ```
 
 
-## Fill the users table
 
 * aggregate
 
@@ -598,7 +610,7 @@ users_agg = suppressWarnings(
 
 
 column_names = colnames(users_agg)
-column_names = column_names[-which(column_names %in% colnames(users))]
+column_names = column_names[-which(column_names %in% c("user_id"))]
 m = match(users$user_id, users_agg$user_id)
 for(column  in column_names){
   eval(parse(text = paste0("users$",column,"= users_agg$",column,"[m]")))
@@ -658,8 +670,10 @@ file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data
 
 ```
 
+### From the Kindara accounts table
 
-## Add the age on the users table
+
+#### Add the age to the users and cycles table
 
 ```{r add the age to the users table}
 
@@ -690,6 +704,58 @@ file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data
 write_feather(cycles, path = paste0(IO$output_data,"cycles.feather"))
 file.copy(from = paste0(IO$output_data,"cycles.feather"), to = paste0(IO$tmp_data,"cycles_with_age.feather"), overwrite = TRUE)
 
+
+```
+
+
+
+#### Add the reproductive objectives declared by users to the users table
+
+
+```{r add the reproductive objectives to the users table}
+
+accounts = read_tsv(paste0(IO$input_data,"accounts.csv"))
+
+users$reprod_obj_app = accounts$objective[match(users$user_id, accounts$id)]
+cycles$reprod_obj_app = users$reprod_obj_app[match(cycles$user_id, users$user_id)]
+
+write_feather(users, path = paste0(IO$output_data,"users.feather"))
+file.copy(from = paste0(IO$output_data,"users.feather"), to = paste0(IO$tmp_data,"users_with_reprod_obj_app.feather"), overwrite = TRUE)
+
+
+write_feather(cycles, path = paste0(IO$output_data,"cycles.feather"))
+file.copy(from = paste0(IO$output_data,"cycles.feather"), to = paste0(IO$tmp_data,"cycles_with_reprod_obj_app.feather"), overwrite = TRUE)
+
+```
+
+
+## Creating a pregnancy table
+
+```{r data_prep defining the pregnancies table}
+
+pregnancies = select(cycles[which(cycles$preg_test_class == "pregnant"),], user_id, cycle_id, cycle_nb, cycle_length, preg_type, current_age, reprod_obj_app)
+
+colnames(pregnancies)[match(c("cycle_id","cycle_length"),colnames(pregnancies))] = c("pregnancy_id","preg_duration")
+pregnancies$preg_duration[which(pregnancies$cycle_nb == 0)] = NA
+
+
+write_feather(pregnancies, path = paste0(IO$output_data, "pregnancies.feather"))
+file.copy(from = paste0(IO$output_data, "pregnancies.feather"), to = paste0(IO$tmp_data, "pregnancies_1st_version.feather"), overwrite = TRUE)
+
+
+```
+
+### Users types
+
+```{r data_prep users types}
+
+users_agg = aggregate(preg_type ~ user_id, pregnancies, max)
+
+users$user_type = users_agg$preg_type[match(users$user_id, users_agg$user_id)]
+
+
+write_feather(users, path = paste0(IO$output_data, "users.feather"))
+file.copy(from = paste0(IO$output_data, "users.feather"), to = paste0(IO$tmp_data, "users_with_user_type.feather"), overwrite = TRUE)
 
 ```
 

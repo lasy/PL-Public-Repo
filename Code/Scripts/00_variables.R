@@ -1,7 +1,7 @@
 # code parameters
 par = list()
 par$IO_user = Sys.getenv("LOGNAME")
-par$dataset =  "Kindara_full_new" # "Kindara_full" "Kindara_subset" "Kindara_subset_new"
+par$dataset =  "Kindara_full_new" # "Kindara_full" "Kindara_subset" "Kindara_subset_new" "Kindara_full_new"
 par$n_cores = detectCores() - 1
 par$max_batch_size = 5000
 par$min_n_batches = 10
@@ -131,8 +131,8 @@ dict$pregnancy_outcomes$duration_in_4weeks = dict$pregnancy_outcomes$duration_in
 
 dict$fertility_counting = data.frame(cycleday_from_end = -20:-8)
 dict$fertility_counting$fertility = 
-  sigmoid(dict$fertility_counting$cycleday_from_end, ix = -15, s = 0.75) - 
-  sigmoid(dict$fertility_counting$cycleday_from_end, ix = -11, s = 1)
+  sigmoid(dict$fertility_counting$cycleday_from_end, ix = -16, s = 0.65) - 
+  sigmoid(dict$fertility_counting$cycleday_from_end, ix = -12, s = 1.5)
 dict$fertility_counting$fertility = dict$fertility_counting$fertility/max(dict$fertility_counting$fertility)
 
 

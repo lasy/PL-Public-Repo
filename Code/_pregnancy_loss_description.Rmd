@@ -24,14 +24,9 @@ knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 ```
 
 
-# Pregnancy losses
+# Pregnancy Outcomes
 
-## Histogram of cycle length
-
-- for cycles with positive pregnancy tests, with only negative pregnancy tests and with no pregnancy tests.
-
-- thresholds for EPL (Early Pregnancy loss), LPL_P (Late Pregnancy loss or premature birth), LB (live birth) and BF (breast feeding)
-
+## Histogram of pregnancy durations
 
 
 ```{r PL_descr load data}
@@ -47,7 +42,7 @@ cycles = read_feather(path = paste0(IO$output_data, "cycles.feather"))
 g = ggplot(cycles, aes(x = cycle_length, fill = preg_test_class)) + 
   geom_histogram(aes(y = ..density..), binwidth = 1, position = "identity")+
   xlim(c(0,750))+
-  facet_grid(preg_test_class ~ .)
+  facet_grid(preg_test_class ~ ., scale = "free")
 g
 
 
@@ -134,37 +129,7 @@ g_hist_lt + annotation_custom(
 ```
 
 
-
-```{r PL_descr preg outcome}
-
-cycles$preg_outcome_based_on_duration = factor(cycles$preg_test_class, 
-                             levels = c(dict$pregnancy_timeline$abbreviation,
-                                        unique(cycles$preg_test_class)))
-
-j = which(cycles$preg_test_class == "pregnant")
-
-cycles$preg_outcome_based_on_duration[j] = cut(cycles$cycle_length[j], 
-                             breaks = c(0,dict$pregnancy_timeline$duration_in_days), 
-                             labels = as.character(dict$pregnancy_timeline$abbreviation))
-
-
-
-cycles$cycle_length_next_cycle = cycles$cycle_length[match(paste0(cycles$user_id, "_",cycles$cycle_nb+1),cycles$cycle_id)]
-
-cycles$preg_outcome_cat = as.character(cycles$preg_outcome_based_on_duration)
-cycles$preg_outcome_cat[cycles$preg_outcome_based_on_duration == "TB noBF"] = "TB noBF (II)"
-cycles$preg_outcome_cat[cycles$preg_outcome_based_on_duration == "BF"] = "TB BF (II)"
-cycles$preg_outcome_cat[which((cycles$preg_outcome_cat == "TB") & (cycles$cycle_length_next_cycle <= 7*9))] = "TB noBF (I)"
-cycles$preg_outcome_cat[which((cycles$preg_outcome_cat == "TB") & (cycles$cycle_length_next_cycle > 7*9))] = "TB BF (I)"
-cycles$preg_outcome_cat[which((cycles$preg_outcome_cat == "TB") & (is.na(cycles$cycle_length_next_cycle)))] = "TB (III)"
-cycles$preg_outcome = dict$pregnancy_outcomes$categories[match(cycles$preg_outcome_cat, dict$pregnancy_outcomes$abbreviation)]
-cycles$preg_outcome_cat = factor(cycles$preg_outcome_cat, levels = unique(dict$pregnancy_outcomes$abbreviation))
-cycles$preg_outcome = factor(cycles$preg_outcome, levels = unique(dict$pregnancy_outcomes$categories))
-
-counts = table(cycles$preg_outcome_cat[j])
-
-table(cycles$preg_outcome_cat[j])/sum(cycles$preg_outcome_cat %in% c("EPL","LPL","ExPTB","PTB","TB noBF (I)","TB noBF (II)","TB (III)","TB BF (I)","TB BF (II)"))
-
+```{r PL_desc pregnancy outcomes categories}
 
 j = which(cycles$preg_test_class == "pregnant")
 
@@ -175,65 +140,6 @@ ggplot(cycles[j,], aes(x = preg_outcome, fill = preg_outcome_cat)) +
   scale_y_continuous(labels=percent)+
   guides(fill = FALSE)
 
-write_feather(cycles, path = paste0(IO$output_data, "cycles.feather"))
-file.copy(from = paste0(IO$output_data, "cycles.feather"), to = paste0(IO$tmp_data, "cycles_with_preg_outcome.feather"), overwrite = TRUE)
-
-```
-
-
-
-
-```{r PL_descr preg outcome per users}
-
-users_preg_outcome =  ddply(cycles, 
-                            .(user_id), 
-                            .fun = summarize,
-                            n_preg = sum(preg_test_class == "pregnant", na.rm = TRUE),
-                            n_PL = sum(preg_outcome %in% c("EPL","LPL"), na.rm = TRUE),
-                            n_LB = sum(preg_outcome %in% c("ExPTB","PTB","TB noBF","BF"), na.rm = TRUE)
-                            
-)
-
-table(users_preg_outcome$n_LB, users_preg_outcome$n_PL)
-table(users_preg_outcome$n_LB)
-table(users_preg_outcome$n_PL)
-
-
-j = which((users_preg_outcome$n_LB + users_preg_outcome$n_PL)>0)
-table(users_preg_outcome$n_LB[j], users_preg_outcome$n_PL[j])
-table(users_preg_outcome$n_LB[j])
-round(table(users_preg_outcome$n_LB[j])/sum(table(users_preg_outcome$n_LB[j])) * 100, 2)
-
-table(users_preg_outcome$n_PL[j])
-round(table(users_preg_outcome$n_PL[j])/sum(table(users_preg_outcome$n_PL[j])) * 100, 2)
-
-
-dim(users)
-dim(users_preg_outcome)
-
-colnames = colnames(users_preg_outcome[,2:ncol(users_preg_outcome)])
-m = match(users$user_id, users_preg_outcome$user_id)
-for(colname in colnames){
-  eval(parse(text = paste0("users$",colname," = users_preg_outcome$",colname,"[m]")))
-}
-
-write_feather(users, path = paste0(IO$output_data, "users.feather"))
-file.copy(from = paste0(IO$output_data, "users.feather"), to = paste0(IO$tmp_data, "users_with_preg_outcome.feather"), overwrite = TRUE)
-
-```
-
-
-```{r PL_descr type0 and type1 users}
-
-type0_users = (users$first_cycle_preg == 0) | (users$n_cycles_after_last_preg == 0) | is.na(users$first_cycle_preg)
-type1_users = !type0_users
-
-users$is_type_1_user = type1_users
-
-
-write_feather(users, path = paste0(IO$output_data, "users.feather"))
-file.copy(from = paste0(IO$output_data, "users.feather"), to = paste0(IO$tmp_data, "users_with_type.feather"), overwrite = TRUE)
-
 ```
 
 
@@ -241,17 +147,7 @@ file.copy(from = paste0(IO$output_data, "users.feather"), to = paste0(IO$tmp_dat
 
 
 
-```{r PL_descr voluntary vs spontaneous PL}
 
 
-load(paste0(IO$output_data,"days.Rdata"), verbose = TRUE)
 
-dim(days)
-lu(days$user_id)
-
-
-# sexual intercourse before first positive pregnancy test
-
-
-```
 
